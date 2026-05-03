@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quality-orchestrator"
+version = "0.1.0"
+description = "AI Quality Orchestrator — analyzes PRs and recommends tests"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "typer>=0.9.0",
+    "rich>=13.0.0",
+    "PyGithub>=2.1.1",
+    "httpx>=0.25.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.scripts]
+quality-orchestrator = "cli.main:app"
+qo = "cli.main:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["api*", "engine*", "generation*", "cli*", "integrations*"]
