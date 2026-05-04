@@ -7,9 +7,13 @@ inputs:
     required: false
     default: ${{ github.token }}
   generate-stubs:
-    description: 'Generate test stubs for files with no coverage (true/false)'
+    description: 'Embed truncated stub previews in the PR comment and write stub files (true/false)'
     required: false
     default: 'true'
+  framework:
+    description: 'Stub framework override: auto (per-file detection), pytest, or playwright'
+    required: false
+    default: 'auto'
 
 runs:
   using: composite
@@ -29,7 +33,6 @@ runs:
     - name: Install Quality Orchestrator
       shell: bash
       run: pip install -e "$GITHUB_ACTION_PATH[action,cli]" --quiet
-      timeout-minutes: 3
 
     - name: Discover test files
       shell: bash
@@ -37,22 +40,29 @@ runs:
         qo list-tests > /tmp/qo_known_tests.txt
         echo "Discovered $(wc -l < /tmp/qo_known_tests.txt | tr -d ' ') test file(s)"
 
-    - name: Analyze PR
+    - name: Analyze PR and generate comment
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
         QO_PR_NUMBER: ${{ github.event.pull_request.number }}
         QO_REPO: ${{ github.repository }}
+        QO_GENERATE_STUBS: ${{ inputs.generate-stubs }}
+        QO_FRAMEWORK: ${{ inputs.framework }}
       run: |
         KNOWN_ARGS=()
         while IFS= read -r f; do
           [ -n "$f" ] && KNOWN_ARGS+=(--known-test-files "$f")
         done < /tmp/qo_known_tests.txt
 
+        STUB_ARGS=()
+        [ "$QO_GENERATE_STUBS" = "true" ] && STUB_ARGS+=(--generate-stubs)
+
         qo analyze \
           --pr "$QO_PR_NUMBER" \
           --repo "$QO_REPO" \
           --format markdown \
+          --framework "$QO_FRAMEWORK" \
+          "${STUB_ARGS[@]}" \
           "${KNOWN_ARGS[@]}" > /tmp/qo_comment.md
 
     - name: Post or update PR comment
@@ -64,7 +74,7 @@ runs:
       run: |
         COMMENT_BODY=$(cat /tmp/qo_comment.md)
 
-        # Find existing Quality Orchestrator comment to update (D1: no duplicate storm)
+        # Find existing QO comment to update — no duplicate storm (D1)
         COMMENT_ID=$(gh api "repos/$QO_REPO/issues/$QO_PR_NUMBER/comments" \
           --jq '[.[] | select(.body | contains("<!-- quality-orchestrator -->"))] | last | .id // empty')
 
@@ -75,22 +85,3 @@ runs:
           gh api "repos/$QO_REPO/issues/$QO_PR_NUMBER/comments" -X POST -f "body=$COMMENT_BODY"
           echo "Created new PR comment"
         fi
-
-    - name: Generate test stubs
-      if: inputs.generate-stubs == 'true'
-      shell: bash
-      env:
-        GITHUB_TOKEN: ${{ inputs.github-token }}
-        QO_PR_NUMBER: ${{ github.event.pull_request.number }}
-        QO_REPO: ${{ github.repository }}
-      run: |
-        KNOWN_ARGS=()
-        while IFS= read -r f; do
-          [ -n "$f" ] && KNOWN_ARGS+=(--known-test-files "$f")
-        done < /tmp/qo_known_tests.txt
-
-        qo analyze \
-          --pr "$QO_PR_NUMBER" \
-          --repo "$QO_REPO" \
-          --generate-stubs \
-          "${KNOWN_ARGS[@]}" || true

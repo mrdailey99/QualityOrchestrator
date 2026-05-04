@@ -26,8 +26,11 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 console = Console()
+_progress = Console(stderr=True)  # progress/status always goes to stderr; stdout stays clean
 
 _TIER_COLOR = {"high": "red", "med": "yellow", "low": "green"}
+_STUB_MAX_LINES = 50
+_FENCE_LANG = {"py": "python", "js": "javascript", "jsx": "jsx", "ts": "typescript", "tsx": "tsx"}
 
 
 # ---------------------------------------------------------------------------
@@ -43,6 +46,7 @@ def analyze(
     output_format: Annotated[str, typer.Option("--format", help="Output format: rich or markdown")] = "rich",
     generate_stubs: Annotated[bool, typer.Option("--generate-stubs", "-g", help="Write stub files for missing coverage")] = False,
     known_test_files: Annotated[Optional[list[str]], typer.Option("--known-test-files", help="Known test file paths (pass once per file)")] = None,
+    framework: Annotated[str, typer.Option("--framework", help="Stub framework override: auto, pytest, playwright")] = "auto",
 ) -> None:
     """Analyze a GitHub PR: fetch diff, map tests, score risk."""
     from integrations.github import get_pr_data
@@ -84,13 +88,14 @@ def analyze(
         return
 
     if output_format == "markdown":
-        typer.echo(_format_markdown(pr, repo, pr_data.get("title", ""), result))
+        stubs = _write_stubs(result.missing_coverage, pr, framework) if generate_stubs else None
+        typer.echo(_format_markdown(pr, repo, pr_data.get("title", ""), result, stubs=stubs))
         return
 
     _print_result(pr, repo, pr_data.get("title", ""), result)
 
     if generate_stubs and result.missing_coverage:
-        _write_stubs(result.missing_coverage, pr)
+        _write_stubs(result.missing_coverage, pr, framework)
     elif result.missing_coverage:
         console.print("[dim]Tip: pass --generate-stubs to scaffold test files for the gaps.[/]\n")
 
@@ -104,6 +109,7 @@ def analyze_local(
     files: Annotated[list[str], typer.Argument(help="Changed source files")],
     output_json: Annotated[bool, typer.Option("--json", help="Output raw JSON")] = False,
     generate_stubs: Annotated[bool, typer.Option("--generate-stubs", "-g", help="Write stubs for missing coverage")] = False,
+    framework: Annotated[str, typer.Option("--framework", help="Stub framework override: auto, pytest, playwright")] = "auto",
 ) -> None:
     """Analyze a list of changed files locally — no GitHub token required."""
     from engine.decision import DecisionEngine
@@ -124,7 +130,7 @@ def analyze_local(
     _print_result(None, None, "local analysis", result)
 
     if generate_stubs and result.missing_coverage:
-        _write_stubs(result.missing_coverage, None)
+        _write_stubs(result.missing_coverage, None, framework)
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +189,23 @@ def serve(
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _format_markdown(pr_number, repo, title, result) -> str:
+def _truncate_stub(content: str, path: str, max_lines: int = _STUB_MAX_LINES) -> str:
+    """Truncate stub content for inline PR comment display."""
+    lines = content.splitlines()
+    if len(lines) <= max_lines:
+        return content
+    ext = Path(path).suffix.lower().lstrip(".")
+    comment = "//" if ext in ("js", "jsx", "ts", "tsx") else "#"
+    return "\n".join(lines[:max_lines]) + f"\n{comment} ... truncated — full stub at {path}"
+
+
+def _format_markdown(
+    pr_number,
+    repo,
+    title,
+    result,
+    stubs: Optional[list[tuple[str, str]]] = None,
+) -> str:
     """Render analysis result as a GitHub PR comment (Markdown)."""
     tier = result.tier.upper()
     score = result.risk_score
@@ -222,6 +244,24 @@ def _format_markdown(pr_number, repo, title, result) -> str:
             lines.append(f"- `{m}`")
         lines.append("")
 
+    if stubs:
+        lines.append("### Generated Stubs")
+        lines.append("")
+        for path, content in stubs:
+            ext = Path(path).suffix.lower().lstrip(".")
+            lang = _FENCE_LANG.get(ext, "text")
+            truncated = _truncate_stub(content, path)
+            lines += [
+                "<details>",
+                f"<summary><code>{path}</code></summary>",
+                "",
+                f"```{lang}",
+                truncated,
+                "```",
+                "</details>",
+                "",
+            ]
+
     lines.append("<!-- quality-orchestrator -->")
     return "\n".join(lines)
 
@@ -235,7 +275,6 @@ def _print_result(pr_number, repo, title, result) -> None:
     filled = round(bar_len * score / 100)
     bar = "#" * filled + "-" * (bar_len - filled)
 
-    # Header panel
     header_parts = []
     if pr_number:
         header_parts.append(f"PR #{pr_number}")
@@ -253,7 +292,6 @@ def _print_result(pr_number, repo, title, result) -> None:
     console.print()
     console.print(Panel(risk_line, title=f"[cyan]Quality Orchestrator[/] {header}", border_style="cyan"))
 
-    # Selected tests
     if result.selected_tests:
         tbl = Table(box=rbox.SIMPLE, show_header=False, padding=(0, 1))
         tbl.add_column(style="green")
@@ -264,7 +302,6 @@ def _print_result(pr_number, repo, title, result) -> None:
     else:
         console.print("[dim]No tests mapped. Pass --generate-stubs to scaffold.[/]")
 
-    # Coverage gaps
     if result.missing_coverage:
         gap_tbl = Table(box=rbox.SIMPLE, show_header=False, padding=(0, 1))
         gap_tbl.add_column(style=color)
@@ -273,23 +310,30 @@ def _print_result(pr_number, repo, title, result) -> None:
             gap_tbl.add_row("[!]", m)
         console.print(Panel(gap_tbl, title=f"[{color}]Missing Coverage ({len(result.missing_coverage)})[/]", border_style=color))
 
-    # CI run snippet
     if result.selected_tests:
         joined = " \\\n    ".join(result.selected_tests)
         console.print(f"[dim]Run:[/]\n  [dim]npx playwright test \\\n    {joined}[/]\n")
 
 
-def _write_stubs(missing: list[str], pr_number) -> None:
+def _write_stubs(
+    missing: list[str],
+    pr_number,
+    framework: str = "auto",
+) -> list[tuple[str, str]]:
+    """Write stub files to disk and return list of (path, content) pairs."""
     from generation.templates import generate_stub
 
-    console.print("[yellow]Generating stubs...[/]")
+    results: list[tuple[str, str]] = []
+    _progress.print("[yellow]Generating stubs...[/]")
     for src in missing:
-        test_path, content = generate_stub(src, pr_number)
+        test_path, content = generate_stub(src, pr_number, framework=framework)
         out = Path(test_path)
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(content, encoding="utf-8")
-        console.print(f"  [green][+][/] {test_path}")
-    console.print()
+        _progress.print(f"  [green][+][/] {test_path}")
+        results.append((test_path, content))
+    _progress.print()
+    return results
 
 
 if __name__ == "__main__":

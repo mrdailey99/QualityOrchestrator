@@ -28,6 +28,9 @@ CATEGORY_WEIGHTS: dict[str, int] = {
 # Leading directories that are not meaningful for test path convention
 _SRC_ROOTS = {"src", "app", "lib", "source"}
 
+# Extensions that have testable conventions — everything else (YAML, JSON, MD…) is skipped
+_TESTABLE_EXTENSIONS = {"py", "js", "ts", "jsx", "tsx"}
+
 
 def convention_map(src_file: str) -> Optional[str]:
     """Derive the expected test file path from a source file via naming convention.

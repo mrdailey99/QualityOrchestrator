@@ -1,7 +1,8 @@
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 
-from engine.mapping import convention_map, fuzzy_match, get_file_category, is_test_file
+from engine.mapping import convention_map, fuzzy_match, get_file_category, is_test_file, _TESTABLE_EXTENSIONS
 from engine.risk import score_risk, risk_tier
 
 
@@ -40,6 +41,10 @@ class DecisionEngine:
         for src in files_changed:
             if is_test_file(src):
                 continue
+
+            ext = Path(src).suffix.lower().lstrip(".")
+            if ext not in _TESTABLE_EXTENSIONS:
+                continue  # skip YAML, JSON, MD, TOML and other infrastructure files
 
             convention = convention_map(src)
             reason: Optional[str] = None
