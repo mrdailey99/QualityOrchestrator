@@ -1,4 +1,5 @@
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -199,15 +200,25 @@ def _truncate_stub(content: str, path: str, max_lines: int = _STUB_MAX_LINES) ->
     return "\n".join(lines[:max_lines]) + f"\n{comment} ... truncated — full stub at {path}"
 
 
+def _md_path(path: str) -> str:
+    """Escape a file path for safe embedding in GitHub Markdown.
+
+    Git allows backticks in filenames; a bare backtick inside an inline code
+    span (or triple-backtick inside a fenced block) would break formatting and
+    enable markdown injection in the PR comment.
+    """
+    return path.replace("`", "&#96;")
+
+
 def _run_command(test_files: list[str]) -> str:
     """Return the shell command to run the given test files."""
     py = [f for f in test_files if f.endswith(".py")]
     js = [f for f in test_files if not f.endswith(".py")]
     parts = []
     if py:
-        parts.append("pytest \\\n  " + " \\\n  ".join(py))
+        parts.append("pytest \\\n  " + " \\\n  ".join(_md_path(f) for f in py))
     if js:
-        parts.append("npx playwright test \\\n  " + " \\\n  ".join(js))
+        parts.append("npx playwright test \\\n  " + " \\\n  ".join(_md_path(f) for f in js))
     return "\n\n".join(parts)
 
 
@@ -223,40 +234,61 @@ def _format_markdown(
     score = result.risk_score
     tier_icon = {"HIGH": "🔴", "MED": "🟡", "LOW": "🟢"}.get(tier, "⚪")
 
+    # ── Header ──────────────────────────────────────────────────────────────
+    # Strip the leading "<TIER> risk (<score>/100). " prefix that _rationale()
+    # prepends — the hero line already shows tier and score explicitly.
+    short_rationale = re.sub(r"^\w+ risk \(\d+/100\)\.\s*", "", result.rationale)
+
     lines = ["## Quality Orchestrator", ""]
-    lines.append(f"**Risk:** {tier_icon} {tier} ({score}/100)")
-    lines.append(f"> {result.rationale}")
+    lines.append(f"**{tier_icon} {tier}** · **`{score} / 100`** · {short_rationale}")
+    lines.append("")
+    lines.append("---")
     lines.append("")
 
+    # ── Tests to Run ────────────────────────────────────────────────────────
     if result.selected_tests:
-        lines.append(f"### Tests to Run ({len(result.selected_tests)})")
+        n = len(result.selected_tests)
+        lines.append(f"### 🧪 Tests to Run · {n} {'file' if n == 1 else 'files'}")
         lines.append("")
         for t in result.selected_tests:
-            lines.append(f"- `{t}`")
+            lines.append(f"- [x] `{_md_path(t)}`")
         lines.append("")
         lines += [
             "<details>",
-            "<summary>Run command</summary>",
+            "<summary>▶&nbsp;Run command</summary>",
             "",
             "```bash",
             _run_command(result.selected_tests),
             "```",
+            "",
             "</details>",
             "",
         ]
     else:
-        lines.append("_No test files mapped. Pass `generate-stubs: true` to scaffold._")
+        lines.append("_No test files mapped._")
         lines.append("")
 
+    # ── Missing Coverage ─────────────────────────────────────────────────────
     if result.missing_coverage:
-        lines.append(f"### Missing Coverage ({len(result.missing_coverage)})")
+        lines.append("---")
+        lines.append("")
+        n = len(result.missing_coverage)
+        lines.append(f"### ⚠️ Missing Coverage · {n} {'file' if n == 1 else 'files'}")
+        lines.append("")
+        lines.append("These source files have no mapped test — consider adding coverage before merge.")
         lines.append("")
         for m in result.missing_coverage:
-            lines.append(f"- `{m}`")
+            lines.append(f"- [ ] `{_md_path(m)}`")
+        lines.append("")
+        first = _md_path(result.missing_coverage[0])
+        lines.append(f"> 💡 Reply `@qo stub {first}` to generate a test scaffold.")
         lines.append("")
 
+    # ── Generated Stubs ──────────────────────────────────────────────────────
     if stubs:
-        lines.append("### Generated Stubs")
+        lines.append("---")
+        lines.append("")
+        lines.append("### 📋 Generated Stubs")
         lines.append("")
         for path, content in stubs:
             ext = Path(path).suffix.lower().lstrip(".")
@@ -269,10 +301,16 @@ def _format_markdown(
                 f"```{lang}",
                 truncated,
                 "```",
+                "",
                 "</details>",
                 "",
             ]
 
+    # ── Footer ───────────────────────────────────────────────────────────────
+    lines.append("---")
+    lines.append("")
+    lines.append("<sub>⚡ quality-orchestrator &nbsp;·&nbsp; `@qo stub <file>` &nbsp;·&nbsp; `@qo why?` &nbsp;·&nbsp; `@qo run all`</sub>")
+    lines.append("")
     lines.append("<!-- quality-orchestrator -->")
     return "\n".join(lines)
 
