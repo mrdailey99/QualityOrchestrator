@@ -223,40 +223,57 @@ def _format_markdown(
     score = result.risk_score
     tier_icon = {"HIGH": "🔴", "MED": "🟡", "LOW": "🟢"}.get(tier, "⚪")
 
+    # ── Header ──────────────────────────────────────────────────────────────
     lines = ["## Quality Orchestrator", ""]
-    lines.append(f"**Risk:** {tier_icon} {tier} ({score}/100)")
-    lines.append(f"> {result.rationale}")
+    lines.append(f"**{tier_icon} {tier}** · **`{score} / 100`** · {result.rationale}")
+    lines.append("")
+    lines.append("---")
     lines.append("")
 
+    # ── Tests to Run ────────────────────────────────────────────────────────
     if result.selected_tests:
-        lines.append(f"### Tests to Run ({len(result.selected_tests)})")
+        n = len(result.selected_tests)
+        lines.append(f"### 🧪 Tests to Run · {n} {'file' if n == 1 else 'files'}")
         lines.append("")
         for t in result.selected_tests:
-            lines.append(f"- `{t}`")
+            lines.append(f"- [x] `{t}`")
         lines.append("")
         lines += [
             "<details>",
-            "<summary>Run command</summary>",
+            "<summary>▶&nbsp;Run command</summary>",
             "",
             "```bash",
             _run_command(result.selected_tests),
             "```",
+            "",
             "</details>",
             "",
         ]
     else:
-        lines.append("_No test files mapped. Pass `generate-stubs: true` to scaffold._")
+        lines.append("_No test files mapped._")
         lines.append("")
 
+    # ── Missing Coverage ─────────────────────────────────────────────────────
     if result.missing_coverage:
-        lines.append(f"### Missing Coverage ({len(result.missing_coverage)})")
+        lines.append("---")
+        lines.append("")
+        n = len(result.missing_coverage)
+        lines.append(f"### ⚠️ Missing Coverage · {n} {'file' if n == 1 else 'files'}")
+        lines.append("")
+        lines.append("These source files have no mapped test — consider adding coverage before merge.")
         lines.append("")
         for m in result.missing_coverage:
-            lines.append(f"- `{m}`")
+            lines.append(f"- [ ] `{m}`")
+        lines.append("")
+        first = result.missing_coverage[0]
+        lines.append(f"> 💡 Reply `@qo stub {first}` to generate a test scaffold.")
         lines.append("")
 
+    # ── Generated Stubs ──────────────────────────────────────────────────────
     if stubs:
-        lines.append("### Generated Stubs")
+        lines.append("---")
+        lines.append("")
+        lines.append("### 📋 Generated Stubs")
         lines.append("")
         for path, content in stubs:
             ext = Path(path).suffix.lower().lstrip(".")
@@ -269,10 +286,16 @@ def _format_markdown(
                 f"```{lang}",
                 truncated,
                 "```",
+                "",
                 "</details>",
                 "",
             ]
 
+    # ── Footer ───────────────────────────────────────────────────────────────
+    lines.append("---")
+    lines.append("")
+    lines.append("<sub>⚡ quality-orchestrator &nbsp;·&nbsp; `@qo stub <file>` &nbsp;·&nbsp; `@qo why?` &nbsp;·&nbsp; `@qo run all`</sub>")
+    lines.append("")
     lines.append("<!-- quality-orchestrator -->")
     return "\n".join(lines)
 

@@ -75,7 +75,7 @@ class TestStubTruncation:
 
 
 # ---------------------------------------------------------------------------
-# Markdown output (D11)
+# Markdown output
 # ---------------------------------------------------------------------------
 
 class TestMarkdownOutput:
@@ -89,15 +89,21 @@ class TestMarkdownOutput:
         md = _format_markdown(1, "owner/repo", "Test PR", result)
         assert "<!-- quality-orchestrator -->" in md
 
-    def test_lists_mapped_tests(self, engine):
+    def test_lists_mapped_tests_as_checkboxes(self, engine):
         result = engine.analyze(["src/api/user.js"])
         md = _format_markdown(1, "owner/repo", "Test PR", result)
         assert "tests/api/user.spec.js" in md
+        assert "- [x]" in md
 
     def test_shows_risk_tier(self, engine):
         result = engine.analyze(["src/api/payment/charges.js"])
         md = _format_markdown(1, "owner/repo", "Test PR", result)
         assert any(tier in md for tier in ("HIGH", "MED", "LOW"))
+
+    def test_risk_score_displayed(self, engine):
+        result = engine.analyze(["src/api/user.js"])
+        md = _format_markdown(1, "owner/repo", "Test PR", result)
+        assert str(result.risk_score) in md
 
     def test_shows_missing_coverage(self, engine):
         result = engine.analyze(
@@ -108,6 +114,27 @@ class TestMarkdownOutput:
         assert "Missing Coverage" in md
         assert "src/lib/new_module.js" in md
 
+    def test_missing_coverage_as_unchecked_boxes(self, engine):
+        result = engine.analyze(
+            ["src/api/user.js", "src/lib/new_module.js"],
+            known_test_files=["tests/api/user.spec.js"],
+        )
+        md = _format_markdown(1, "owner/repo", "Test PR", result)
+        assert "- [ ]" in md
+
+    def test_missing_coverage_suggests_stub_command(self, engine):
+        result = engine.analyze(
+            ["src/lib/new_module.js"],
+            known_test_files=[],
+        )
+        md = _format_markdown(1, "owner/repo", "Test PR", result)
+        assert "@qo stub" in md
+
+    def test_footer_contains_bot_commands(self, engine):
+        result = engine.analyze(["src/api/user.js"])
+        md = _format_markdown(1, "owner/repo", "Test PR", result)
+        assert "@qo" in md
+
     def test_yaml_files_excluded_from_missing_coverage(self, engine):
         result = engine.analyze(
             ["src/api/user.js", "action.yml", ".github/workflows/ci.yml"],
@@ -116,6 +143,16 @@ class TestMarkdownOutput:
         md = _format_markdown(1, "owner/repo", "Test PR", result)
         assert "action.yml" not in md
         assert "ci.yml" not in md
+
+    def test_run_command_uses_pytest_for_python_tests(self, engine):
+        result = engine.analyze(["src/api/user.py"])
+        md = _format_markdown(1, "owner/repo", "Test PR", result)
+        assert "pytest" in md
+
+    def test_run_command_uses_playwright_for_js_tests(self, engine):
+        result = engine.analyze(["src/api/user.js"])
+        md = _format_markdown(1, "owner/repo", "Test PR", result)
+        assert "npx playwright test" in md
 
 
 class TestMarkdownWithStubs:
