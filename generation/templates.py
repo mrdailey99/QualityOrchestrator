@@ -4,8 +4,20 @@ from typing import Optional
 from engine.mapping import _SRC_ROOTS
 
 
-def generate_stub(src_file: str, pr_number: Optional[int] = None) -> tuple[str, str]:
-    """Return (test_path, stub_content) for a source file with no coverage."""
+def generate_stub(
+    src_file: str,
+    pr_number: Optional[int] = None,
+    framework: str = "auto",
+) -> tuple[str, str]:
+    """Return (test_path, stub_content) for a source file with no coverage.
+
+    framework: "auto" detects per file extension; "pytest" or "playwright" forces a framework.
+    """
+    if framework == "pytest":
+        return _python_stub(src_file, pr_number)
+    if framework == "playwright":
+        return _playwright_stub(src_file, pr_number)
+    # auto: detect from extension
     ext = Path(src_file).suffix.lower().lstrip(".")
     if ext == "py":
         return _python_stub(src_file, pr_number)
