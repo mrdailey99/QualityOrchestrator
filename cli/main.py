@@ -88,7 +88,7 @@ def analyze(
         return
 
     if output_format == "markdown":
-        stubs = _write_stubs(result.missing_coverage, pr, framework) if generate_stubs else None
+        stubs = _write_stubs(result.missing_coverage, pr, framework) if (generate_stubs and result.missing_coverage) else None
         typer.echo(_format_markdown(pr, repo, pr_data.get("title", ""), result, stubs=stubs))
         return
 
@@ -199,6 +199,18 @@ def _truncate_stub(content: str, path: str, max_lines: int = _STUB_MAX_LINES) ->
     return "\n".join(lines[:max_lines]) + f"\n{comment} ... truncated — full stub at {path}"
 
 
+def _run_command(test_files: list[str]) -> str:
+    """Return the shell command to run the given test files."""
+    py = [f for f in test_files if f.endswith(".py")]
+    js = [f for f in test_files if not f.endswith(".py")]
+    parts = []
+    if py:
+        parts.append("pytest \\\n  " + " \\\n  ".join(py))
+    if js:
+        parts.append("npx playwright test \\\n  " + " \\\n  ".join(js))
+    return "\n\n".join(parts)
+
+
 def _format_markdown(
     pr_number,
     repo,
@@ -222,13 +234,12 @@ def _format_markdown(
         for t in result.selected_tests:
             lines.append(f"- `{t}`")
         lines.append("")
-        run_args = " \\\n  ".join(result.selected_tests)
         lines += [
             "<details>",
             "<summary>Run command</summary>",
             "",
             "```bash",
-            f"npx playwright test \\\n  {run_args}",
+            _run_command(result.selected_tests),
             "```",
             "</details>",
             "",
@@ -311,8 +322,7 @@ def _print_result(pr_number, repo, title, result) -> None:
         console.print(Panel(gap_tbl, title=f"[{color}]Missing Coverage ({len(result.missing_coverage)})[/]", border_style=color))
 
     if result.selected_tests:
-        joined = " \\\n    ".join(result.selected_tests)
-        console.print(f"[dim]Run:[/]\n  [dim]npx playwright test \\\n    {joined}[/]\n")
+        console.print(f"[dim]Run:[/]\n  [dim]{_run_command(result.selected_tests)}[/]\n")
 
 
 def _write_stubs(
