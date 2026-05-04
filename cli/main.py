@@ -26,9 +26,11 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 console = Console()
+_progress = Console(stderr=True)  # progress/status always goes to stderr; stdout stays clean
 
 _TIER_COLOR = {"high": "red", "med": "yellow", "low": "green"}
 _STUB_MAX_LINES = 50
+_FENCE_LANG = {"py": "python", "js": "javascript", "jsx": "jsx", "ts": "typescript", "tsx": "tsx"}
 
 
 # ---------------------------------------------------------------------------
@@ -192,7 +194,9 @@ def _truncate_stub(content: str, path: str, max_lines: int = _STUB_MAX_LINES) ->
     lines = content.splitlines()
     if len(lines) <= max_lines:
         return content
-    return "\n".join(lines[:max_lines]) + f"\n# ... truncated — full stub at {path}"
+    ext = Path(path).suffix.lower().lstrip(".")
+    comment = "//" if ext in ("js", "jsx", "ts", "tsx") else "#"
+    return "\n".join(lines[:max_lines]) + f"\n{comment} ... truncated — full stub at {path}"
 
 
 def _format_markdown(
@@ -244,7 +248,8 @@ def _format_markdown(
         lines.append("### Generated Stubs")
         lines.append("")
         for path, content in stubs:
-            lang = "python" if path.endswith(".py") else "javascript"
+            ext = Path(path).suffix.lower().lstrip(".")
+            lang = _FENCE_LANG.get(ext, "text")
             truncated = _truncate_stub(content, path)
             lines += [
                 "<details>",
@@ -319,15 +324,15 @@ def _write_stubs(
     from generation.templates import generate_stub
 
     results: list[tuple[str, str]] = []
-    console.print("[yellow]Generating stubs...[/]")
+    _progress.print("[yellow]Generating stubs...[/]")
     for src in missing:
         test_path, content = generate_stub(src, pr_number, framework=framework)
         out = Path(test_path)
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(content, encoding="utf-8")
-        console.print(f"  [green][+][/] {test_path}")
+        _progress.print(f"  [green][+][/] {test_path}")
         results.append((test_path, content))
-    console.print()
+    _progress.print()
     return results
 
 

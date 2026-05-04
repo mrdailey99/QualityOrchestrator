@@ -3,6 +3,8 @@ from typing import Optional
 
 from engine.mapping import _SRC_ROOTS
 
+_VALID_FRAMEWORKS = {"auto", "pytest", "playwright"}
+
 
 def generate_stub(
     src_file: str,
@@ -13,6 +15,8 @@ def generate_stub(
 
     framework: "auto" detects per file extension; "pytest" or "playwright" forces a framework.
     """
+    if framework not in _VALID_FRAMEWORKS:
+        raise ValueError(f"Unknown framework '{framework}'. Valid options: {', '.join(sorted(_VALID_FRAMEWORKS))}")
     if framework == "pytest":
         return _python_stub(src_file, pr_number)
     if framework == "playwright":
