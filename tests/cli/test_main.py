@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from cli.main import _format_markdown, _run_command, _truncate_stub
+from cli.main import _format_markdown, _md_path, _run_command, _truncate_stub
 
 
 # ---------------------------------------------------------------------------
@@ -36,6 +36,26 @@ class TestRunCommand:
         cmd = _run_command(["tests/api/user.spec.js"])
         assert "npx playwright test" in cmd
         assert "tests/api/user.spec.js" in cmd
+
+
+# ---------------------------------------------------------------------------
+# Unit: _md_path — markdown injection defence
+# ---------------------------------------------------------------------------
+
+class TestMdPath:
+    def test_clean_path_unchanged(self):
+        assert _md_path("tests/api/user.spec.js") == "tests/api/user.spec.js"
+
+    def test_backtick_escaped(self):
+        assert _md_path("tests/api/use`r.spec.js") == "tests/api/use&#96;r.spec.js"
+
+    def test_triple_backtick_escaped(self):
+        result = _md_path("tests/api/```evil.spec.js")
+        assert "```" not in result
+
+    def test_multiple_backticks_all_escaped(self):
+        result = _md_path("a`b`c")
+        assert result == "a&#96;b&#96;c"
 
 
 # ---------------------------------------------------------------------------
@@ -104,6 +124,28 @@ class TestMarkdownOutput:
         result = engine.analyze(["src/api/user.js"])
         md = _format_markdown(1, "owner/repo", "Test PR", result)
         assert str(result.risk_score) in md
+
+    def test_hero_line_does_not_repeat_score(self, engine):
+        result = engine.analyze(["src/api/user.js"])
+        md = _format_markdown(1, "owner/repo", "Test PR", result)
+        hero_line = [l for l in md.splitlines() if "/ 100" in l][0]
+        # score should appear once (in the bold badge), not twice
+        assert hero_line.count(str(result.risk_score)) == 1
+
+    def test_backtick_in_path_is_escaped(self, engine):
+        result = engine.analyze(["src/api/user.js"])
+        # Manually inject a backtick path into the result to test sanitization
+        result.selected_tests = ["tests/api/use`r.spec.js"]
+        md = _format_markdown(1, "owner/repo", "Test PR", result)
+        assert "use`r" not in md
+        assert "&#96;" in md
+
+    def test_backtick_in_missing_path_is_escaped(self, engine):
+        result = engine.analyze(["src/lib/new_module.js"], known_test_files=[])
+        result.missing_coverage = ["src/lib/use`r.js"]
+        md = _format_markdown(1, "owner/repo", "Test PR", result)
+        assert "use`r" not in md
+        assert "&#96;" in md
 
     def test_shows_missing_coverage(self, engine):
         result = engine.analyze(
