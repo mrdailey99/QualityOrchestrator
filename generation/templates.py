@@ -1,6 +1,8 @@
 from pathlib import Path
 from typing import Optional
 
+from engine.mapping import _SRC_ROOTS
+
 
 def generate_stub(src_file: str, pr_number: Optional[int] = None) -> tuple[str, str]:
     """Return (test_path, stub_content) for a source file with no coverage."""
@@ -16,8 +18,7 @@ def _playwright_stub(src_file: str, pr_number: Optional[int]) -> tuple[str, str]
     suffix = path.suffix  # includes the dot
 
     parts = path.parts
-    src_roots = {"src", "app", "lib"}
-    start = 1 if parts and parts[0] in src_roots else 0
+    start = 1 if parts and parts[0] in _SRC_ROOTS else 0
     dir_parts = parts[start:-1]
 
     test_dir = "tests/" + "/".join(dir_parts) if dir_parts else "tests"
@@ -56,8 +57,7 @@ def _python_stub(src_file: str, pr_number: Optional[int]) -> tuple[str, str]:
     stem = path.stem
 
     parts = path.parts
-    src_roots = {"src", "app", "lib"}
-    start = 1 if parts and parts[0] in src_roots else 0
+    start = 1 if parts and parts[0] in _SRC_ROOTS else 0
     dir_parts = parts[start:-1]
 
     test_dir = "tests/" + "/".join(dir_parts) if dir_parts else "tests"
@@ -77,9 +77,9 @@ def test_{stem}_happy_path():
     pass
 
 
+@pytest.mark.skip(reason="TODO: implement invalid input test")
 def test_{stem}_invalid_input():
-    with pytest.raises(Exception):
-        pass  # TODO: call with invalid args
+    pass
 
 
 # TODO: add edge cases based on diff

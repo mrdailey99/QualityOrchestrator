@@ -1,4 +1,5 @@
 import json
+import subprocess
 import sys
 from pathlib import Path
 from typing import Annotated, Optional
@@ -39,7 +40,9 @@ def analyze(
     repo: Annotated[str, typer.Option("--repo", "-r", help="GitHub repo owner/name")],
     token: Annotated[Optional[str], typer.Option("--token", envvar="GITHUB_TOKEN", help="GitHub token")] = None,
     output_json: Annotated[bool, typer.Option("--json", help="Output raw JSON")] = False,
+    output_format: Annotated[str, typer.Option("--format", help="Output format: rich or markdown")] = "rich",
     generate_stubs: Annotated[bool, typer.Option("--generate-stubs", "-g", help="Write stub files for missing coverage")] = False,
+    known_test_files: Annotated[Optional[list[str]], typer.Option("--known-test-files", help="Known test file paths (pass once per file)")] = None,
 ) -> None:
     """Analyze a GitHub PR: fetch diff, map tests, score risk."""
     from integrations.github import get_pr_data
@@ -64,6 +67,7 @@ def analyze(
         files_changed=pr_data["files_changed"],
         diff=pr_data.get("diff"),
         repo=repo,
+        known_test_files=known_test_files,
     )
 
     if output_json:
@@ -77,6 +81,10 @@ def analyze(
             "rationale": result.rationale,
         }
         typer.echo(json.dumps(out, indent=2))
+        return
+
+    if output_format == "markdown":
+        typer.echo(_format_markdown(pr, repo, pr_data.get("title", ""), result))
         return
 
     _print_result(pr, repo, pr_data.get("title", ""), result)
@@ -120,6 +128,37 @@ def analyze_local(
 
 
 # ---------------------------------------------------------------------------
+# list-tests — discover test files in the current repo
+# ---------------------------------------------------------------------------
+
+@app.command(name="list-tests")
+def list_tests(
+    directory: Annotated[str, typer.Argument(help="Root directory to scan")] = ".",
+) -> None:
+    """List all test files discovered in the repo (uses git ls-files, falls back to walk)."""
+    from engine.mapping import is_test_file
+
+    try:
+        proc = subprocess.run(
+            ["git", "ls-files"],
+            capture_output=True, text=True, cwd=directory, timeout=30,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError("git ls-files failed")
+        files = [f for f in proc.stdout.splitlines() if f]
+    except Exception:
+        files = []
+        for p in Path(directory).rglob("*"):
+            if p.is_file():
+                rel = str(p.relative_to(directory)).replace("\\", "/")
+                files.append(rel)
+
+    for f in files:
+        if is_test_file(f):
+            typer.echo(f)
+
+
+# ---------------------------------------------------------------------------
 # serve — start the FastAPI server
 # ---------------------------------------------------------------------------
 
@@ -143,6 +182,49 @@ def serve(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _format_markdown(pr_number, repo, title, result) -> str:
+    """Render analysis result as a GitHub PR comment (Markdown)."""
+    tier = result.tier.upper()
+    score = result.risk_score
+    tier_icon = {"HIGH": "🔴", "MED": "🟡", "LOW": "🟢"}.get(tier, "⚪")
+
+    lines = ["## Quality Orchestrator", ""]
+    lines.append(f"**Risk:** {tier_icon} {tier} ({score}/100)")
+    lines.append(f"> {result.rationale}")
+    lines.append("")
+
+    if result.selected_tests:
+        lines.append(f"### Tests to Run ({len(result.selected_tests)})")
+        lines.append("")
+        for t in result.selected_tests:
+            lines.append(f"- `{t}`")
+        lines.append("")
+        run_args = " \\\n  ".join(result.selected_tests)
+        lines += [
+            "<details>",
+            "<summary>Run command</summary>",
+            "",
+            "```bash",
+            f"npx playwright test \\\n  {run_args}",
+            "```",
+            "</details>",
+            "",
+        ]
+    else:
+        lines.append("_No test files mapped. Pass `generate-stubs: true` to scaffold._")
+        lines.append("")
+
+    if result.missing_coverage:
+        lines.append(f"### Missing Coverage ({len(result.missing_coverage)})")
+        lines.append("")
+        for m in result.missing_coverage:
+            lines.append(f"- `{m}`")
+        lines.append("")
+
+    lines.append("<!-- quality-orchestrator -->")
+    return "\n".join(lines)
+
 
 def _print_result(pr_number, repo, title, result) -> None:
     score = result.risk_score

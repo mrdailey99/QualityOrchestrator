@@ -1,0 +1,96 @@
+name: 'Quality Orchestrator'
+description: 'Analyze PRs, recommend tests to run, and generate stubs for missing coverage'
+
+inputs:
+  github-token:
+    description: 'GitHub token for PR access and commenting'
+    required: false
+    default: ${{ github.token }}
+  generate-stubs:
+    description: 'Generate test stubs for files with no coverage (true/false)'
+    required: false
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    - name: Validate action path
+      shell: bash
+      run: |
+        if [ -z "$GITHUB_ACTION_PATH" ]; then
+          echo "::error::GITHUB_ACTION_PATH is not set — cannot locate Quality Orchestrator"
+          exit 1
+        fi
+        if [ ! -d "$GITHUB_ACTION_PATH" ]; then
+          echo "::error::GITHUB_ACTION_PATH does not exist: $GITHUB_ACTION_PATH"
+          exit 1
+        fi
+
+    - name: Install Quality Orchestrator
+      shell: bash
+      run: pip install -e "$GITHUB_ACTION_PATH[action,cli]" --quiet
+      timeout-minutes: 3
+
+    - name: Discover test files
+      shell: bash
+      run: |
+        qo list-tests > /tmp/qo_known_tests.txt
+        echo "Discovered $(wc -l < /tmp/qo_known_tests.txt | tr -d ' ') test file(s)"
+
+    - name: Analyze PR
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        QO_PR_NUMBER: ${{ github.event.pull_request.number }}
+        QO_REPO: ${{ github.repository }}
+      run: |
+        KNOWN_ARGS=()
+        while IFS= read -r f; do
+          [ -n "$f" ] && KNOWN_ARGS+=(--known-test-files "$f")
+        done < /tmp/qo_known_tests.txt
+
+        qo analyze \
+          --pr "$QO_PR_NUMBER" \
+          --repo "$QO_REPO" \
+          --format markdown \
+          "${KNOWN_ARGS[@]}" > /tmp/qo_comment.md
+
+    - name: Post or update PR comment
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        QO_PR_NUMBER: ${{ github.event.pull_request.number }}
+        QO_REPO: ${{ github.repository }}
+      run: |
+        COMMENT_BODY=$(cat /tmp/qo_comment.md)
+
+        # Find existing Quality Orchestrator comment to update (D1: no duplicate storm)
+        COMMENT_ID=$(gh api "repos/$QO_REPO/issues/$QO_PR_NUMBER/comments" \
+          --jq '[.[] | select(.body | contains("<!-- quality-orchestrator -->"))] | last | .id // empty')
+
+        if [ -n "$COMMENT_ID" ]; then
+          gh api "repos/$QO_REPO/issues/comments/$COMMENT_ID" -X PATCH -f "body=$COMMENT_BODY"
+          echo "Updated existing comment #$COMMENT_ID"
+        else
+          gh api "repos/$QO_REPO/issues/$QO_PR_NUMBER/comments" -X POST -f "body=$COMMENT_BODY"
+          echo "Created new PR comment"
+        fi
+
+    - name: Generate test stubs
+      if: inputs.generate-stubs == 'true'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        QO_PR_NUMBER: ${{ github.event.pull_request.number }}
+        QO_REPO: ${{ github.repository }}
+      run: |
+        KNOWN_ARGS=()
+        while IFS= read -r f; do
+          [ -n "$f" ] && KNOWN_ARGS+=(--known-test-files "$f")
+        done < /tmp/qo_known_tests.txt
+
+        qo analyze \
+          --pr "$QO_PR_NUMBER" \
+          --repo "$QO_REPO" \
+          --generate-stubs \
+          "${KNOWN_ARGS[@]}" || true

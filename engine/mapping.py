@@ -58,8 +58,11 @@ def convention_map(src_file: str) -> Optional[str]:
     return None
 
 
-def fuzzy_match(src_file: str, test_files: list[str]) -> Optional[str]:
-    """Match a source file to the closest test file by stem similarity (≥0.70 ratio)."""
+def fuzzy_match(src_file: str, test_files: list[str]) -> Optional[tuple[str, float]]:
+    """Match a source file to the closest test file by stem similarity (≥0.70 ratio).
+
+    Returns (matched_path, confidence_ratio) or None if no match found.
+    """
     basename = Path(src_file).stem.lower()
     best: Optional[str] = None
     best_ratio = 0.0
@@ -69,7 +72,7 @@ def fuzzy_match(src_file: str, test_files: list[str]) -> Optional[str]:
         if ratio > best_ratio and ratio >= 0.70:
             best_ratio = ratio
             best = t
-    return best
+    return (best, best_ratio) if best else None
 
 
 def get_file_category(path: str) -> Optional[str]:

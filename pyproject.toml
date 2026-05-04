@@ -8,13 +8,30 @@ version = "0.1.0"
 description = "AI Quality Orchestrator — analyzes PRs and recommends tests"
 requires-python = ">=3.10"
 dependencies = [
-    "fastapi>=0.104.0",
-    "uvicorn[standard]>=0.24.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+cli = [
     "typer>=0.9.0",
     "rich>=13.0.0",
+]
+api = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "httpx>=0.25.0",
+]
+action = [
     "PyGithub>=2.1.1",
     "httpx>=0.25.0",
-    "python-dotenv>=1.0.0",
+]
+all = [
+    "typer>=0.9.0",
+    "rich>=13.0.0",
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "httpx>=0.25.0",
+    "PyGithub>=2.1.1",
 ]
 
 [project.scripts]

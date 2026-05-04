@@ -18,12 +18,12 @@ def get_pr_data(
         raise ImportError("PyGithub is required: pip install PyGithub") from exc
 
     token = token or os.getenv("GITHUB_TOKEN")
-    g = Github(token)
+    g = Github(token, timeout=10)
 
     gh_repo = g.get_repo(repo)
     pr = gh_repo.get_pull(pr_number)
 
-    files = list(pr.get_files())
+    files = [f for f in pr.get_files() if f.status != "removed"]
     file_paths = [f.filename for f in files]
 
     diff_parts: list[str] = []
