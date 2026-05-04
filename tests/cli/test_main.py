@@ -5,7 +5,38 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 import pytest
-from cli.main import _format_markdown, _truncate_stub
+from cli.main import _format_markdown, _run_command, _truncate_stub
+
+
+# ---------------------------------------------------------------------------
+# Unit: _run_command
+# ---------------------------------------------------------------------------
+
+class TestRunCommand:
+    def test_python_only_uses_pytest(self):
+        cmd = _run_command(["tests/engine/test_decision.py", "tests/engine/test_mapping.py"])
+        assert cmd.startswith("pytest")
+        assert "npx" not in cmd
+
+    def test_js_only_uses_playwright(self):
+        cmd = _run_command(["tests/api/user.spec.js", "tests/lib/fraud.spec.js"])
+        assert cmd.startswith("npx playwright test")
+        assert "pytest" not in cmd
+
+    def test_mixed_emits_both_commands(self):
+        cmd = _run_command(["tests/engine/test_decision.py", "tests/api/user.spec.js"])
+        assert "pytest" in cmd
+        assert "npx playwright test" in cmd
+
+    def test_single_py_file(self):
+        cmd = _run_command(["tests/engine/test_risk.py"])
+        assert "pytest" in cmd
+        assert "tests/engine/test_risk.py" in cmd
+
+    def test_single_js_file(self):
+        cmd = _run_command(["tests/api/user.spec.js"])
+        assert "npx playwright test" in cmd
+        assert "tests/api/user.spec.js" in cmd
 
 
 # ---------------------------------------------------------------------------
