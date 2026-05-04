@@ -2,6 +2,34 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Git Workflow
+
+**Never commit directly to `main`.** Every change — feature, fix, CI tweak, chore — must go through a branch and PR.
+
+### Branch naming
+| Type | Pattern | Example |
+|------|---------|---------|
+| Feature | `feat/<slug>` | `feat/vitest-stubs` |
+| Bug fix | `fix/<slug>` | `fix/fuzzy-threshold` |
+| CI / tooling | `ci/<slug>` | `ci/node24-upgrade` |
+| Chore / maintenance | `chore/<slug>` | `chore/split-deps` |
+
+### Workflow (every task)
+```bash
+git checkout -b feat/<name>   # 1. branch off main
+# ... make changes ...
+git add <files>
+git commit -m "..."           # 2. commit
+git push -u origin feat/<name> # 3. push branch
+gh pr create --fill           # 4. open PR
+# review & merge via GitHub   # 5. merge → main
+```
+
+A `pre-push` hook (`.githooks/pre-push`) is committed to this repo and blocks direct pushes to `main`. Activate it once after cloning:
+```bash
+git config core.hooksPath .githooks
+```
+
 ## Commands
 
 ```bash
