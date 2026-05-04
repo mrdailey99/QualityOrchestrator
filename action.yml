@@ -33,7 +33,6 @@ runs:
     - name: Install Quality Orchestrator
       shell: bash
       run: pip install -e "$GITHUB_ACTION_PATH[action,cli]" --quiet
-      timeout-minutes: 3
 
     - name: Discover test files
       shell: bash
