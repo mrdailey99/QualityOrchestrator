@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Optional
 
 
@@ -13,29 +14,36 @@ def score_risk(
       - Category  (0–50): driven by the highest-weight risk path (payment, auth, etc.)
       - Coverage  (0–30): fraction of changed files with no test mapped
     """
-    from engine.mapping import get_file_category, is_test_file, CATEGORY_WEIGHTS
+    from engine.mapping import get_file_category, is_test_file, CATEGORY_WEIGHTS, _TESTABLE_EXTENSIONS
 
     if not files_changed:
         return 0
 
+    # Score is based on testable source files only — YAML, JSON, MD, etc. are excluded
+    # from all three components so infrastructure changes don't inflate risk.
+    testable = [
+        f for f in files_changed
+        if not is_test_file(f)
+        and Path(f).suffix.lower().lstrip(".") in _TESTABLE_EXTENSIONS
+    ]
+
+    if not testable:
+        return 0
+
     # 1. Volume
-    volume = min(len(files_changed) * 2, 20)
+    volume = min(len(testable) * 2, 20)
 
     # 2. Category — find the single highest-weight category across all changed files
     max_weight = 0
-    for f in files_changed:
+    for f in testable:
         cat = get_file_category(f)
         if cat:
             max_weight = max(max_weight, CATEGORY_WEIGHTS.get(cat, 1))
     category = min(max_weight * 10, 50)
 
     # 3. Missing coverage ratio
-    non_test = [f for f in files_changed if not is_test_file(f)]
-    if non_test:
-        ratio = len(missing_coverage) / len(non_test)
-        coverage = int(ratio * 30)
-    else:
-        coverage = 0
+    ratio = len(missing_coverage) / len(testable)
+    coverage = int(ratio * 30)
 
     return min(volume + category + coverage, 100)
 

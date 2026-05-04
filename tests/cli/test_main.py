@@ -4,7 +4,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-import pytest
 from cli.main import _format_markdown, _run_command, _truncate_stub
 
 

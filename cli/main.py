@@ -88,7 +88,7 @@ def analyze(
         return
 
     if output_format == "markdown":
-        stubs = _write_stubs(result.missing_coverage, pr, framework) if generate_stubs else None
+        stubs = _write_stubs(result.missing_coverage, pr, framework) if (generate_stubs and result.missing_coverage) else None
         typer.echo(_format_markdown(pr, repo, pr_data.get("title", ""), result, stubs=stubs))
         return
 

@@ -111,12 +111,14 @@ class TestFuzzyMatch:
         assert path == "tests/lib/fraud.spec.js"
 
     def test_confidence_stored_in_mapping(self, engine):
+        # src/api/users.js → convention: tests/api/users.spec.js (absent from list)
+        # fuzzy matching finds tests/api/user.spec.js at ~0.89 stem similarity
         test_files = ["tests/api/user.spec.js"]
-        result = engine.analyze(["src/api/user.js"], known_test_files=test_files)
+        result = engine.analyze(["src/api/users.js"], known_test_files=test_files)
         fuzzy_entry = next((m for m in result.mapping if m.reason == "fuzzy match"), None)
-        if fuzzy_entry:
-            assert fuzzy_entry.confidence is not None
-            assert 0.0 < fuzzy_entry.confidence <= 1.0
+        assert fuzzy_entry is not None, "Expected fuzzy match; convention path absent so fuzzy should activate"
+        assert fuzzy_entry.confidence is not None
+        assert 0.0 < fuzzy_entry.confidence <= 1.0
 
 
 # ---------------------------------------------------------------------------
