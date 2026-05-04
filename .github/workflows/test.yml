@@ -12,6 +12,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Configure git hooks
+        run: git config core.hooksPath .githooks
+
       - uses: actions/setup-python@v6
         with:
           python-version: '3.11'

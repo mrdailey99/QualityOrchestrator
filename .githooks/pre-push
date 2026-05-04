@@ -1,0 +1,19 @@
+#!/bin/bash
+# Block direct pushes to main or master.
+# Activate with: git config core.hooksPath .githooks
+
+while read -r local_ref _local_sha remote_ref _remote_sha; do
+    if [[ "$remote_ref" =~ ^refs/heads/(main|master)$ ]]; then
+        echo ""
+        echo "  ERROR: direct push to '${BASH_REMATCH[1]}' is not allowed."
+        echo "  Create a branch and open a PR instead:"
+        echo ""
+        echo "    git checkout -b feat/<name>"
+        echo "    git push -u origin feat/<name>"
+        echo "    gh pr create --fill"
+        echo ""
+        exit 1
+    fi
+done
+
+exit 0
