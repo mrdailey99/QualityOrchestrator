@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Optional
 
 from engine.mapping import convention_map, fuzzy_match, get_file_category, is_test_file, _TESTABLE_EXTENSIONS
-from engine.risk import score_risk, risk_tier
+from engine.risk import score_risk, risk_tier, RiskBreakdown
 
 
 @dataclass
@@ -22,6 +22,7 @@ class AnalysisResult:
     tier: str
     rationale: str
     mapping: list[FileMappingEntry] = field(default_factory=list)
+    score_breakdown: Optional[RiskBreakdown] = None
 
 
 class DecisionEngine:
@@ -86,17 +87,18 @@ class DecisionEngine:
                 seen.add(t)
                 unique_tests.append(t)
 
-        score = score_risk(files_changed, missing, diff)
-        tier = risk_tier(score)
-        rationale = self._rationale(files_changed, missing, score, tier)
+        breakdown = score_risk(files_changed, missing, diff)
+        tier = risk_tier(breakdown.total)
+        rationale = self._rationale(files_changed, missing, breakdown.total, tier)
 
         return AnalysisResult(
             selected_tests=unique_tests,
             missing_coverage=missing,
-            risk_score=score,
+            risk_score=breakdown.total,
             tier=tier,
             rationale=rationale,
             mapping=mapping,
+            score_breakdown=breakdown,
         )
 
     def _rationale(
