@@ -11,10 +11,9 @@ Add a `qo list-tests` subcommand that runs `is_test_file()` across all tracked f
 newline-separated paths relative to the repo root. Document it in README as the canonical way to
 verify test file discovery before running `qo analyze`.
 
-### T2: Validate `$GITHUB_ACTION_PATH` at runtime
-In `action.yml`, add a guard step before `pip install -e "$GITHUB_ACTION_PATH"` that validates
-the env var is set and the path exists. Print a clear error if not — the silent failure mode is
-a confusing install error with no actionable message.
+### ~~T2: Validate `$GITHUB_ACTION_PATH` at runtime~~ ✅ Done
+`action.yml` already validates `GITHUB_ACTION_PATH` is set and the path exists before install.
+The step prints a clear error and exits if the guard fails.
 
 ### T3: Truncate inline stubs at 50 lines
 When `--format markdown` embeds a generated stub in a `<details>` block, truncate stub content
@@ -80,7 +79,7 @@ install) to have meaningful cross-repo data.
 
 ## UX
 
-### T14: "Running X of Y tests" display
-Show `Running 2 of 143 tests` in the PR comment header. Total count is available from
-`--known-test-files` length. Makes the time savings concrete and immediately visible to the
-developer reading the comment.
+### ~~T14: "Running X of Y tests" display~~ ✅ Done
+`_format_markdown()` now accepts `total_tests: int = 0`. When `> 0`, the Tests to Run section
+shows `Running N of M tests`; otherwise falls back to `N files`. Wired into all three CLI
+commands (`analyze`, `analyze-local`, `analyze-staged`) via `total_known`.

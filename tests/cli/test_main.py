@@ -254,6 +254,32 @@ class TestMarkdownWithStubs:
 
 
 # ---------------------------------------------------------------------------
+# T14: "Running X of Y tests" section label
+# ---------------------------------------------------------------------------
+
+class TestFormatMarkdownTotalTests:
+    def test_total_tests_shows_running_n_of_m(self, engine):
+        result = engine.analyze(["src/api/user.js"])
+        md = _format_markdown(1, "owner/repo", "Test PR", result, total_tests=143)
+        assert f"Running {len(result.selected_tests)} of 143 tests" in md
+
+    def test_zero_total_tests_shows_file_count(self, engine):
+        result = engine.analyze(["src/api/user.js"])
+        md = _format_markdown(1, "owner/repo", "Test PR", result, total_tests=0)
+        n = len(result.selected_tests)
+        assert f"{n} file" in md
+        assert "Running" not in md
+
+    def test_singular_file_label(self, engine):
+        result = engine.analyze(["src/api/user.js"])
+        # force exactly 1 selected test
+        result.selected_tests = result.selected_tests[:1]
+        md = _format_markdown(1, "owner/repo", "Test PR", result, total_tests=0)
+        assert "1 file" in md
+        assert "1 files" not in md
+
+
+# ---------------------------------------------------------------------------
 # TUI mode
 # ---------------------------------------------------------------------------
 

@@ -82,6 +82,7 @@ def analyze(
     if test_dir:
         all_known.extend(_scan_test_dir(test_dir))
     known = all_known or None
+    total_known = len(all_known)
 
     engine = DecisionEngine()
     result = engine.analyze(
@@ -107,7 +108,7 @@ def analyze(
 
     if output_format == "markdown":
         stubs = _write_stubs(result.missing_coverage, pr, framework) if (generate_stubs and result.missing_coverage) else None
-        typer.echo(_format_markdown(pr, repo, pr_data.get("title", ""), result, stubs=stubs))
+        typer.echo(_format_markdown(pr, repo, pr_data.get("title", ""), result, stubs=stubs, total_tests=total_known))
         return
 
     if tui:
@@ -139,7 +140,9 @@ def analyze_local(
     """Analyze a list of changed files locally — no GitHub token required."""
     from engine.decision import DecisionEngine
 
-    known = _scan_test_dir(test_dir) if test_dir else None
+    all_known = _scan_test_dir(test_dir) if test_dir else []
+    known = all_known or None
+    total_known = len(all_known)
 
     engine = DecisionEngine()
     result = engine.analyze(files_changed=files, known_test_files=known)
@@ -157,7 +160,7 @@ def analyze_local(
 
     if output_format == "markdown":
         stubs = _write_stubs(result.missing_coverage, None, framework) if (generate_stubs and result.missing_coverage) else None
-        typer.echo(_format_markdown(None, None, "local analysis", result, stubs=stubs))
+        typer.echo(_format_markdown(None, None, "local analysis", result, stubs=stubs, total_tests=total_known))
         return
 
     if tui:
@@ -200,7 +203,9 @@ def analyze_staged(
         console.print("[dim]No changed source files detected.[/]")
         raise typer.Exit(0)
 
-    known = _scan_test_dir(test_dir) if test_dir else None
+    all_known = _scan_test_dir(test_dir) if test_dir else []
+    known = all_known or None
+    total_known = len(all_known)
 
     engine = DecisionEngine()
     result = engine.analyze(files_changed=files, known_test_files=known)
@@ -225,7 +230,7 @@ def analyze_staged(
 
     if output_format == "markdown":
         stubs = _write_stubs(result.missing_coverage, None, framework) if (generate_stubs and result.missing_coverage) else None
-        typer.echo(_format_markdown(None, None, ctx_label, result, stubs=stubs))
+        typer.echo(_format_markdown(None, None, ctx_label, result, stubs=stubs, total_tests=total_known))
         if hook:
             _hook_exit(result)
         return
@@ -744,6 +749,7 @@ def _format_markdown(
     title,
     result,
     stubs: Optional[list[tuple[str, str]]] = None,
+    total_tests: int = 0,
 ) -> str:
     """Render analysis result as a GitHub PR comment (Markdown)."""
     tier = result.tier.upper()
@@ -763,7 +769,11 @@ def _format_markdown(
     # ── Tests to Run ────────────────────────────────────────────────────────
     if result.selected_tests:
         n = len(result.selected_tests)
-        lines.append(f"### 🧪 Tests to Run · {n} {'file' if n == 1 else 'files'}")
+        if total_tests > 0:
+            section_label = f"Running {n} of {total_tests} tests"
+        else:
+            section_label = f"{n} {'file' if n == 1 else 'files'}"
+        lines.append(f"### 🧪 Tests to Run · {section_label}")
         lines.append("")
         for t in result.selected_tests:
             lines.append(f"- [x] `{_md_path(t)}`")
