@@ -263,6 +263,13 @@ class TestFormatMarkdownTotalTests:
         md = _format_markdown(1, "owner/repo", "Test PR", result, total_tests=143)
         assert f"Running {len(result.selected_tests)} of 143 tests" in md
 
+    def test_total_tests_singular(self, engine):
+        result = engine.analyze(["src/api/user.js"])
+        result.selected_tests = result.selected_tests[:1]
+        md = _format_markdown(1, "owner/repo", "Test PR", result, total_tests=1)
+        assert "Running 1 of 1 test" in md
+        assert "Running 1 of 1 tests" not in md
+
     def test_zero_total_tests_shows_file_count(self, engine):
         result = engine.analyze(["src/api/user.js"])
         md = _format_markdown(1, "owner/repo", "Test PR", result, total_tests=0)

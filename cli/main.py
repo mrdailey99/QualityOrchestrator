@@ -77,10 +77,8 @@ def analyze(
             console.print(f"[red]GitHub error:[/] {exc}")
             raise typer.Exit(1)
 
-    # Merge --known-test-files and --test-dir into one list
-    all_known = list(known_test_files or [])
-    if test_dir:
-        all_known.extend(_scan_test_dir(test_dir))
+    # Merge --known-test-files and --test-dir into one deduplicated list
+    all_known = list(dict.fromkeys(list(known_test_files or []) + (_scan_test_dir(test_dir) if test_dir else [])))
     known = all_known or None
     total_known = len(all_known)
 
@@ -770,7 +768,7 @@ def _format_markdown(
     if result.selected_tests:
         n = len(result.selected_tests)
         if total_tests > 0:
-            section_label = f"Running {n} of {total_tests} tests"
+            section_label = f"Running {n} of {total_tests} {'test' if total_tests == 1 else 'tests'}"
         else:
             section_label = f"{n} {'file' if n == 1 else 'files'}"
         lines.append(f"### 🧪 Tests to Run · {section_label}")

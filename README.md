@@ -7,7 +7,8 @@ AI-powered PR analysis tool. Fetches changed files from a GitHub PR (or your loc
 ## Quick Start
 
 ```bash
-pip install -e .
+pip install -r requirements.txt   # installs all deps
+# or: pip install -e ".[all]"     # editable install with all extras
 
 # Analyze a GitHub PR
 qo analyze --pr 42 --repo owner/repo --token $GITHUB_TOKEN
@@ -206,7 +207,7 @@ Risk is scored 0–100 from three additive components:
 | Component | Weight | Description |
 |-----------|--------|-------------|
 | Volume | 0–20 | `files × 2`, capped at 20 |
-| Category | 0–50 | Highest-weight category × 10 (payment=5, auth=4, api/models/middleware=3, config/lib=2, utils/ui=1) |
+| Category | 0–50 | Highest-weight category × 10 (payment/security=5, auth/migrations=4, middleware/models/api=3, config/lib=2, utils/components/ui/styles=1) |
 | Coverage | 0–30 | Fraction of testable files with no mapped test × 30 |
 
 **Tiers:** `HIGH` ≥ 70 · `MED` 40–69 · `LOW` < 40
@@ -228,8 +229,10 @@ QO_PORT=8000                # optional, default 8000
 ## Development
 
 ```bash
-# Install in editable mode
-pip install -e .
+# Install all deps
+pip install -r requirements.txt
+# or editable with all extras:
+pip install -e ".[all]"
 
 # Run tests
 pytest tests/
