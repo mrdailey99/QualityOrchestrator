@@ -1,13 +1,22 @@
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+
+@dataclass
+class RiskBreakdown:
+    volume: int
+    category: int
+    coverage: int
+    total: int
 
 
 def score_risk(
     files_changed: list[str],
     missing_coverage: list[str],
     diff: Optional[str] = None,
-) -> int:
-    """Compute a 0–100 risk score for a PR.
+) -> RiskBreakdown:
+    """Compute a 0–100 risk score and return the full breakdown.
 
     Three additive components, each capped:
       - Volume    (0–20): scales with number of changed files
@@ -17,7 +26,7 @@ def score_risk(
     from engine.mapping import get_file_category, is_test_file, CATEGORY_WEIGHTS, _TESTABLE_EXTENSIONS
 
     if not files_changed:
-        return 0
+        return RiskBreakdown(volume=0, category=0, coverage=0, total=0)
 
     # Score is based on testable source files only — YAML, JSON, MD, etc. are excluded
     # from all three components so infrastructure changes don't inflate risk.
@@ -28,7 +37,7 @@ def score_risk(
     ]
 
     if not testable:
-        return 0
+        return RiskBreakdown(volume=0, category=0, coverage=0, total=0)
 
     # 1. Volume
     volume = min(len(testable) * 2, 20)
@@ -45,7 +54,8 @@ def score_risk(
     ratio = len(missing_coverage) / len(testable)
     coverage = int(ratio * 30)
 
-    return min(volume + category + coverage, 100)
+    total = min(volume + category + coverage, 100)
+    return RiskBreakdown(volume=volume, category=category, coverage=coverage, total=total)
 
 
 def risk_tier(score: int) -> str:

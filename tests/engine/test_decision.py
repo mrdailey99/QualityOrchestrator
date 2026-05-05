@@ -136,3 +136,30 @@ class TestNoKnownTestFiles:
         assert "action.yml" not in result.missing_coverage
         assert ".github/workflows/ci.yml" not in result.missing_coverage
         assert len(result.selected_tests) == 1
+
+
+# ---------------------------------------------------------------------------
+# Score breakdown
+# ---------------------------------------------------------------------------
+
+class TestScoreBreakdown:
+    def test_breakdown_always_present(self, engine):
+        result = engine.analyze(["src/api/user.js"])
+        assert result.score_breakdown is not None
+
+    def test_breakdown_total_matches_risk_score(self, engine):
+        result = engine.analyze(["src/api/payment/charges.js", "src/lib/fraud.js"],
+                                 known_test_files=["tests/api/payment/charges.spec.js"])
+        assert result.score_breakdown.total == result.risk_score
+
+    def test_breakdown_components_non_negative(self, engine):
+        result = engine.analyze(["src/api/user.js"])
+        bd = result.score_breakdown
+        assert bd.volume >= 0
+        assert bd.category >= 0
+        assert bd.coverage >= 0
+
+    def test_empty_input_gives_zero_breakdown(self, engine):
+        result = engine.analyze([])
+        bd = result.score_breakdown
+        assert bd.volume == 0 and bd.category == 0 and bd.coverage == 0 and bd.total == 0

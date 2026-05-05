@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from cli.main import _format_markdown, _md_path, _run_command, _truncate_stub
+from cli.main import _format_markdown, _md_path, _run_command, _run_command_cli, _truncate_stub
 
 
 # ---------------------------------------------------------------------------
@@ -41,6 +41,28 @@ class TestRunCommand:
 # ---------------------------------------------------------------------------
 # Unit: _md_path — markdown injection defence
 # ---------------------------------------------------------------------------
+
+class TestRunCommandCli:
+    def test_python_only_uses_pytest(self):
+        cmd = _run_command_cli(["tests/engine/test_decision.py"])
+        assert cmd.startswith("pytest")
+        assert "\\\n" not in cmd
+
+    def test_js_only_uses_playwright(self):
+        cmd = _run_command_cli(["tests/api/user.spec.js"])
+        assert cmd.startswith("npx playwright test")
+        assert "\\\n" not in cmd
+
+    def test_mixed_emits_both_on_separate_lines(self):
+        cmd = _run_command_cli(["tests/engine/test_risk.py", "tests/api/user.spec.js"])
+        lines = cmd.splitlines()
+        assert any(l.startswith("pytest") for l in lines)
+        assert any(l.startswith("npx playwright test") for l in lines)
+
+    def test_no_backslash_continuations(self):
+        cmd = _run_command_cli(["tests/a.py", "tests/b.py", "tests/c.spec.js"])
+        assert "\\\n" not in cmd
+
 
 class TestMdPath:
     def test_clean_path_unchanged(self):
