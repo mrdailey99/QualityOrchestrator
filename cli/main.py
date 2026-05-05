@@ -171,6 +171,145 @@ def analyze_local(
 
 
 # ---------------------------------------------------------------------------
+# analyze-staged — auto-detect changed files from git, no token required
+# ---------------------------------------------------------------------------
+
+@app.command(name="analyze-staged")
+def analyze_staged(
+    base: Annotated[Optional[str], typer.Option("--base", "-b", help="Compare against this branch (e.g. main)")] = None,
+    staged_only: Annotated[bool, typer.Option("--staged/--all", help="Staged files only vs all changes vs HEAD")] = True,
+    test_dir: Annotated[Optional[str], typer.Option("--test-dir", "-t", help="Directory to scan for test files")] = None,
+    output_json: Annotated[bool, typer.Option("--json", help="Output raw JSON")] = False,
+    output_format: Annotated[str, typer.Option("--format", help="Output format: rich or markdown")] = "rich",
+    generate_stubs: Annotated[bool, typer.Option("--generate-stubs", "-g", help="Write stubs for missing coverage")] = False,
+    framework: Annotated[str, typer.Option("--framework", help="Stub framework: auto, pytest, playwright")] = "auto",
+    tui: Annotated[bool, typer.Option("--tui", help="Render results in TUI mode")] = False,
+    hook: Annotated[bool, typer.Option("--hook", hidden=True, help="Hook mode: exit 1 on HIGH risk + gaps")] = False,
+) -> None:
+    """Analyze files changed in the current git working tree — no GitHub token needed.
+
+    Fits naturally into the pre-commit / pre-push workflow:
+      qo analyze-staged                   # staged files only
+      qo analyze-staged --all             # all changes vs HEAD
+      qo analyze-staged --base main       # everything on this branch vs main
+    """
+    from engine.decision import DecisionEngine
+
+    files = _get_changed_files(staged_only=staged_only, base=base)
+    if not files:
+        console.print("[dim]No changed source files detected.[/]")
+        raise typer.Exit(0)
+
+    known = _scan_test_dir(test_dir) if test_dir else None
+
+    engine = DecisionEngine()
+    result = engine.analyze(files_changed=files, known_test_files=known)
+
+    ctx_label = f"{len(files)} file{'s' if len(files) != 1 else ''} changed"
+    if base:
+        ctx_label += f" vs {base}"
+
+    if output_json:
+        typer.echo(json.dumps({
+            "risk_score": result.risk_score,
+            "tier": result.tier,
+            "score_breakdown": _breakdown_dict(result),
+            "selected_tests": result.selected_tests,
+            "missing_coverage": result.missing_coverage,
+            "rationale": result.rationale,
+            "files_analyzed": files,
+        }, indent=2))
+        if hook:
+            _hook_exit(result)
+        return
+
+    if output_format == "markdown":
+        stubs = _write_stubs(result.missing_coverage, None, framework) if (generate_stubs and result.missing_coverage) else None
+        typer.echo(_format_markdown(None, None, ctx_label, result, stubs=stubs))
+        if hook:
+            _hook_exit(result)
+        return
+
+    if tui:
+        _print_tui(None, None, ctx_label, result, framework=framework)
+    else:
+        _print_result(None, None, ctx_label, result)
+        if generate_stubs and result.missing_coverage:
+            _write_stubs(result.missing_coverage, None, framework)
+        elif result.missing_coverage and not hook:
+            console.print("[dim]Tip: --generate-stubs scaffolds test files for the gaps.[/]\n")
+
+    if hook:
+        _hook_exit(result)
+
+
+# ---------------------------------------------------------------------------
+# install-hooks — wire QO into git pre-push / pre-commit
+# ---------------------------------------------------------------------------
+
+@app.command(name="install-hooks")
+def install_hooks(
+    hook_type: Annotated[str, typer.Option("--hook-type", help="Hook to install: pre-push or pre-commit")] = "pre-push",
+    base: Annotated[str, typer.Option("--base", help="Base branch for pre-push comparison")] = "main",
+    uninstall: Annotated[bool, typer.Option("--uninstall", help="Remove the installed hook")] = False,
+    force: Annotated[bool, typer.Option("--force", help="Overwrite an existing non-QO hook")] = False,
+) -> None:
+    """Install a git hook that runs QO analysis before every push or commit.
+
+    Blocks HIGH-risk pushes with missing coverage; use git push --no-verify to bypass.
+    """
+    git_dir = _find_git_dir()
+    if git_dir is None:
+        console.print("[red]Error:[/] not inside a git repository.")
+        raise typer.Exit(1)
+
+    hooks_dir = git_dir / "hooks"
+    hooks_dir.mkdir(exist_ok=True)
+    hook_path = hooks_dir / hook_type
+
+    if uninstall:
+        if not hook_path.exists():
+            console.print(f"[dim]No {hook_type} hook found.[/]")
+            return
+        content = hook_path.read_text(encoding="utf-8", errors="replace")
+        if "quality-orchestrator" not in content:
+            console.print(f"[yellow]Warning:[/] {hook_type} hook was not installed by QO — not removing.")
+            console.print(f"[dim]Delete manually: {hook_path}[/]")
+            raise typer.Exit(1)
+        hook_path.unlink()
+        console.print(f"  [{_GREEN}]✓[/]  Removed {hook_type} hook from {hook_path}")
+        return
+
+    if hook_path.exists():
+        content = hook_path.read_text(encoding="utf-8", errors="replace")
+        if "quality-orchestrator" not in content and not force:
+            console.print(
+                f"[yellow]Warning:[/] a {hook_type} hook already exists at {hook_path} "
+                f"and was not installed by QO.\n"
+                f"[dim]Use --force to overwrite it.[/]"
+            )
+            raise typer.Exit(1)
+
+    hook_content = _hook_script(hook_type, base)
+    hook_path.write_text(hook_content, encoding="utf-8")
+
+    # Make executable on Unix; Git for Windows handles this automatically
+    if sys.platform != "win32":
+        import stat
+        hook_path.chmod(hook_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+    console.print()
+    console.print(f"  [{_GREEN}]✓[/]  Installed {hook_type} hook → {hook_path}")
+    if hook_type == "pre-push":
+        console.print(f"  [dim]Runs:[/] qo analyze-staged --base {base} before every push")
+        console.print(f"  [dim]Bypass:[/] git push --no-verify")
+    else:
+        console.print(f"  [dim]Runs:[/] qo analyze-staged --staged before every commit")
+        console.print(f"  [dim]Bypass:[/] git commit --no-verify")
+    console.print()
+
+
+# ---------------------------------------------------------------------------
 # list-tests — discover test files in the current repo
 # ---------------------------------------------------------------------------
 
@@ -417,6 +556,70 @@ def _read_key() -> str:
             return sys.stdin.read(1)
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+
+# ---------------------------------------------------------------------------
+# Helpers — git / developer workflow
+# ---------------------------------------------------------------------------
+
+def _get_changed_files(staged_only: bool = True, base: Optional[str] = None) -> list[str]:
+    """Return file paths changed in the current git working tree."""
+    try:
+        if base:
+            cmd = ["git", "diff", "--name-only", f"{base}...HEAD"]
+        elif staged_only:
+            cmd = ["git", "diff", "--cached", "--name-only"]
+        else:
+            cmd = ["git", "diff", "--name-only", "HEAD"]
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if proc.returncode != 0:
+            return []
+        return [f for f in proc.stdout.splitlines() if f]
+    except Exception:
+        return []
+
+
+def _hook_exit(result) -> None:
+    """In hook mode: exit 1 with a clear message if HIGH risk + coverage gaps, else silent exit 0."""
+    if result.tier == "high" and result.missing_coverage:
+        n = len(result.missing_coverage)
+        console.print()
+        console.print(f"  [{_PINK}]⚠  HIGH risk — {n} file{'s' if n != 1 else ''} with no test coverage.[/]")
+        console.print(f"  [dim]Push anyway:    git push --no-verify[/]")
+        console.print(f"  [dim]Add coverage:   qo analyze-staged --generate-stubs[/]")
+        console.print()
+        raise typer.Exit(1)
+
+
+def _find_git_dir() -> Optional[Path]:
+    """Walk up from CWD to find the .git directory."""
+    current = Path(".").resolve()
+    for parent in [current, *current.parents]:
+        candidate = parent / ".git"
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def _hook_script(hook_type: str, base: str) -> str:
+    """Return the shell script content for the given hook type."""
+    if hook_type == "pre-push":
+        analyze_args = f"analyze-staged --base {base} --tui --hook"
+    else:
+        analyze_args = "analyze-staged --staged --tui --hook"
+
+    return f"""\
+#!/usr/bin/env bash
+# quality-orchestrator {hook_type} hook
+# Installed by: qo install-hooks --hook-type {hook_type}
+# Remove with:  qo install-hooks --hook-type {hook_type} --uninstall
+
+if command -v qo &> /dev/null; then
+    qo {analyze_args}
+else
+    python "$(git rev-parse --show-toplevel)/cli/main.py" {analyze_args}
+fi
+"""
 
 
 # ---------------------------------------------------------------------------
