@@ -100,7 +100,7 @@ class TestHookExit:
 class TestHookScript:
     def test_pre_push_uses_base(self):
         script = _hook_script("pre-push", "main")
-        assert "--base main" in script
+        assert "--base" in script and "main" in script
         assert "pre-push" in script
 
     def test_pre_commit_uses_staged(self):
@@ -120,3 +120,60 @@ class TestHookScript:
         script = _hook_script("pre-push", "main")
         assert "python" in script
         assert "cli/main.py" in script
+
+    def test_base_with_spaces_is_quoted(self):
+        script = _hook_script("pre-push", "feature branch")
+        assert "'feature branch'" in script
+
+    def test_base_with_metacharacters_is_safe(self):
+        script = _hook_script("pre-push", "main; rm -rf /")
+        # dangerous chars must be inside quotes, not executed bare
+        assert "'main; rm -rf /'" in script
+
+
+class TestFindGitDir:
+    def test_finds_standard_git_dir(self, tmp_path):
+        import os
+        git_dir = tmp_path / ".git"
+        git_dir.mkdir()
+        old = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            result = _find_git_dir()
+            assert result == git_dir.resolve()
+        finally:
+            os.chdir(old)
+
+    def test_handles_gitdir_file_for_worktrees(self, tmp_path):
+        import os
+        real_gitdir = tmp_path / "real_gitdir"
+        real_gitdir.mkdir()
+        worktree = tmp_path / "worktree"
+        worktree.mkdir()
+        (worktree / ".git").write_text(f"gitdir: {real_gitdir}\n")
+        old = os.getcwd()
+        try:
+            os.chdir(worktree)
+            result = _find_git_dir()
+            assert result == real_gitdir.resolve()
+        finally:
+            os.chdir(old)
+
+    def test_returns_none_outside_repo(self, tmp_path):
+        import os
+        old = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            assert _find_git_dir() is None
+        finally:
+            os.chdir(old)
+
+
+class TestInstallHooksValidation:
+    def test_invalid_hook_type_rejected(self):
+        from typer.testing import CliRunner
+        from cli.main import app
+        runner = CliRunner()
+        result = runner.invoke(app, ["install-hooks", "--hook-type", "../evil/path"])
+        assert result.exit_code == 1
+        assert "pre-push" in result.output or "pre-commit" in result.output

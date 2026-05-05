@@ -258,6 +258,13 @@ def install_hooks(
 
     Blocks HIGH-risk pushes with missing coverage; use git push --no-verify to bypass.
     """
+    _VALID_HOOK_TYPES = {"pre-push", "pre-commit"}
+    if hook_type not in _VALID_HOOK_TYPES:
+        console.print(
+            f"[red]Error:[/] --hook-type must be one of: {', '.join(sorted(_VALID_HOOK_TYPES))}"
+        )
+        raise typer.Exit(1)
+
     git_dir = _find_git_dir()
     if git_dir is None:
         console.print("[red]Error:[/] not inside a git repository.")
@@ -592,19 +599,36 @@ def _hook_exit(result) -> None:
 
 
 def _find_git_dir() -> Optional[Path]:
-    """Walk up from CWD to find the .git directory."""
+    """Walk up from CWD to find the .git directory.
+
+    Handles both standard repos (.git/ is a directory) and git worktrees /
+    submodules where .git is a file containing 'gitdir: <path>'.
+    """
     current = Path(".").resolve()
     for parent in [current, *current.parents]:
         candidate = parent / ".git"
         if candidate.is_dir():
             return candidate
+        if candidate.is_file():
+            try:
+                content = candidate.read_text(encoding="utf-8", errors="replace").strip()
+                if content.startswith("gitdir:"):
+                    gitdir = Path(content[len("gitdir:"):].strip())
+                    if not gitdir.is_absolute():
+                        gitdir = parent / gitdir
+                    resolved = gitdir.resolve()
+                    if resolved.is_dir():
+                        return resolved
+            except OSError:
+                pass
     return None
 
 
 def _hook_script(hook_type: str, base: str) -> str:
     """Return the shell script content for the given hook type."""
+    safe_base = shlex.quote(base)
     if hook_type == "pre-push":
-        analyze_args = f"analyze-staged --base {base} --tui --hook"
+        analyze_args = f"analyze-staged --base {safe_base} --tui --hook"
     else:
         analyze_args = "analyze-staged --staged --tui --hook"
 
