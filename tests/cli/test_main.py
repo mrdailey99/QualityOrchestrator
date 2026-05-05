@@ -1,10 +1,11 @@
 """Tests for cli/main.py — markdown rendering and stub truncation."""
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from cli.main import _format_markdown, _md_path, _run_command, _run_command_cli, _truncate_stub
+from cli.main import _format_markdown, _md_path, _read_key, _run_command, _run_command_cli, _truncate_stub
 
 
 # ---------------------------------------------------------------------------
@@ -250,3 +251,101 @@ class TestMarkdownWithStubs:
         stubs = [("tests/lib/new_module.spec.ts", "import { test } from '@playwright/test';\n")]
         md = _format_markdown(1, "owner/repo", "Test PR", result, stubs=stubs)
         assert "```typescript" in md
+
+
+# ---------------------------------------------------------------------------
+# TUI mode
+# ---------------------------------------------------------------------------
+
+class TestReadKeyNonTty:
+    def test_returns_empty_when_not_a_tty(self, monkeypatch):
+        monkeypatch.setattr("sys.stdin", type("FakeStdin", (), {"isatty": lambda self: False})())
+        assert _read_key() == ""
+
+
+class TestTuiMode:
+    def test_r_key_calls_run_tests(self, monkeypatch, engine):
+        from cli.main import _print_tui
+        result = engine.analyze(["src/api/user.py"])
+
+        monkeypatch.setattr("cli.main._read_key", lambda: "r")
+        called_with = []
+        monkeypatch.setattr("cli.main._run_tests", lambda files: called_with.extend(files))
+
+        _print_tui(None, None, "test", result)
+        assert len(called_with) > 0
+
+    def test_q_key_does_not_run_tests(self, monkeypatch, engine):
+        from cli.main import _print_tui
+        result = engine.analyze(["src/api/user.py"])
+
+        monkeypatch.setattr("cli.main._read_key", lambda: "q")
+        called_with = []
+        monkeypatch.setattr("cli.main._run_tests", lambda files: called_with.extend(files))
+
+        _print_tui(None, None, "test", result)
+        assert called_with == []
+
+    def test_g_key_generates_stubs_for_missing_files(self, monkeypatch, engine):
+        from cli.main import _print_tui
+        # Non-matching known_test_files forces the file into missing_coverage
+        result = engine.analyze(["src/api/user.py"], known_test_files=["tests/other/test_unrelated.py"])
+
+        monkeypatch.setattr("cli.main._read_key", lambda: "g")
+        generated = []
+        monkeypatch.setattr("cli.main._write_stubs", lambda missing, pr, fw: generated.extend(missing))
+
+        _print_tui(None, None, "test", result)
+        assert "src/api/user.py" in generated
+
+    def test_r_key_with_no_tests_does_not_call_run(self, monkeypatch, engine):
+        from cli.main import _print_tui
+        # Non-matching known_test_files → no selected_tests, all missing
+        result = engine.analyze(["src/api/user.py"], known_test_files=["tests/other/test_unrelated.py"])
+
+        monkeypatch.setattr("cli.main._read_key", lambda: "r")
+        called_with = []
+        monkeypatch.setattr("cli.main._run_tests", lambda files: called_with.extend(files))
+
+        _print_tui(None, None, "test", result)
+        assert called_with == []
+
+    def test_empty_key_runs_nothing(self, monkeypatch, engine):
+        from cli.main import _print_tui
+        result = engine.analyze(["src/api/user.py"])
+
+        monkeypatch.setattr("cli.main._read_key", lambda: "")
+        called_with = []
+        monkeypatch.setattr("cli.main._run_tests", lambda files: called_with.extend(files))
+
+        _print_tui(None, None, "test", result)
+        assert called_with == []
+
+
+# ---------------------------------------------------------------------------
+# _scan_test_dir — filesystem fallback safety
+# ---------------------------------------------------------------------------
+
+class TestScanTestDir:
+    def test_nonexistent_dir_returns_empty(self):
+        from cli.main import _scan_test_dir
+        assert _scan_test_dir("/nonexistent/path/that/cannot/exist") == []
+
+    def test_outside_cwd_does_not_crash(self, tmp_path):
+        from cli.main import _scan_test_dir
+        test_dir = tmp_path / "tests"
+        test_dir.mkdir()
+        (test_dir / "test_foo.py").write_text("# test")
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stdout="")
+            files = _scan_test_dir(str(test_dir))
+
+        assert any("test_foo.py" in f for f in files)
+
+    def test_run_command_cli_quotes_special_chars(self):
+        files = ["tests/my test.py", "tests/spec file.spec.js"]
+        py_cmd = _run_command_cli([files[0]])
+        js_cmd = _run_command_cli([files[1]])
+        assert "my test.py" not in py_cmd or "'" in py_cmd or '"' in py_cmd
+        assert "spec file" not in js_cmd or "'" in js_cmd or '"' in js_cmd

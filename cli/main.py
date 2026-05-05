@@ -1,5 +1,7 @@
 import json
+import os
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -388,7 +390,7 @@ def _print_tui(pr_number, repo, title, result, framework: str = "auto") -> None:
         cmd = _run_command_cli(result.selected_tests)
         console.print(f"  [{_CYAN}]running:[/] [dim]{cmd}[/]")
         console.print()
-        subprocess.run(cmd, shell=True)
+        _run_tests(result.selected_tests)
     elif key in ("g", "G") and has_gaps:
         _write_stubs(result.missing_coverage, pr_number, framework)
 
@@ -444,9 +446,9 @@ def _scan_test_dir(directory: str) -> list[str]:
     except Exception:
         pass
 
-    cwd = Path(".").resolve()
+    cwd = str(Path(".").resolve())
     return [
-        str(p.resolve().relative_to(cwd)).replace("\\", "/")
+        os.path.relpath(str(p), cwd).replace("\\", "/")
         for p in d.rglob("*")
         if p.is_file() and is_test_file(str(p))
     ]
@@ -488,15 +490,25 @@ def _run_command(test_files: list[str]) -> str:
 
 
 def _run_command_cli(test_files: list[str]) -> str:
-    """Return the shell command for terminal display (plain, no line continuations)."""
+    """Return the shell command for terminal display (quoted paths, no line continuations)."""
     py = [f for f in test_files if f.endswith(".py")]
     js = [f for f in test_files if not f.endswith(".py")]
     parts = []
     if py:
-        parts.append("pytest " + " ".join(py))
+        parts.append("pytest " + " ".join(shlex.quote(f) for f in py))
     if js:
-        parts.append("npx playwright test " + " ".join(js))
+        parts.append("npx playwright test " + " ".join(shlex.quote(f) for f in js))
     return "\n".join(parts)
+
+
+def _run_tests(test_files: list[str]) -> None:
+    """Execute test files directly using a list-based subprocess call (no shell, no injection risk)."""
+    py = [f for f in test_files if f.endswith(".py")]
+    js = [f for f in test_files if not f.endswith(".py")]
+    if py:
+        subprocess.run(["pytest"] + py)
+    if js:
+        subprocess.run(["npx", "playwright", "test"] + js)
 
 
 def _format_markdown(
