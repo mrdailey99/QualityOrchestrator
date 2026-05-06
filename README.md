@@ -189,14 +189,59 @@ qo serve --port 9000
 Add to `.github/workflows/quality.yml`:
 
 ```yaml
-- uses: your-org/quality-orchestrator@main
-  with:
-    github-token: ${{ secrets.GITHUB_TOKEN }}
-    repo: ${{ github.repository }}
-    pr-number: ${{ github.event.pull_request.number }}
+name: Quality Orchestrator
+
+on:
+  pull_request:
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mrdailey99/QualityOrchestrator@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-The action posts a Markdown analysis comment to the PR with risk tier, selected tests, and missing coverage gaps.
+### Inputs
+
+| Input | Default | Description |
+|-------|---------|-------------|
+| `github-token` | `${{ github.token }}` | Token for PR access and commenting |
+| `generate-stubs` | `'true'` | Embed stub previews in the PR comment |
+| `framework` | `'auto'` | Stub framework: `auto`, `pytest`, `playwright` |
+| `test-dir` | `''` | Directory to scan for test files — enables **Running N of M** counter |
+| `fail-on-high` | `'false'` | Exit 1 when risk is HIGH — use with required status checks to block merges |
+| `comment-on-low` | `'true'` | Set `'false'` to skip comments on LOW-risk PRs |
+
+### Outputs
+
+| Output | Description |
+|--------|-------------|
+| `risk-tier` | `high`, `med`, or `low` |
+| `risk-score` | Numeric score 0–100 |
+
+Use outputs to drive downstream steps:
+
+```yaml
+- uses: mrdailey99/QualityOrchestrator@v1
+  id: qo
+  with:
+    github-token: ${{ secrets.GITHUB_TOKEN }}
+    test-dir: tests/
+    fail-on-high: 'true'
+
+- if: steps.qo.outputs.risk-tier == 'high'
+  run: echo "High risk PR — notify team"
+```
+
+The action posts a Markdown analysis comment to the PR with risk tier, selected tests, and missing coverage gaps. On re-push the comment is updated in place — no duplicate comments.
 
 ---
 
