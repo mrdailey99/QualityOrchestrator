@@ -1,6 +1,10 @@
 name: 'Quality Orchestrator'
 description: 'Analyze PRs, recommend tests to run, and generate stubs for missing coverage'
 
+branding:
+  icon: 'cpu'
+  color: 'purple'
+
 inputs:
   github-token:
     description: 'GitHub token for PR access and commenting'
@@ -14,6 +18,26 @@ inputs:
     description: 'Stub framework override: auto (per-file detection), pytest, or playwright'
     required: false
     default: 'auto'
+  test-dir:
+    description: 'Directory to scan for known test files — enables the "Running N of M tests" counter in the PR comment'
+    required: false
+    default: ''
+  fail-on-high:
+    description: 'Exit with a non-zero status when risk tier is HIGH — use this to block merges via required status checks'
+    required: false
+    default: 'false'
+  comment-on-low:
+    description: 'Post a PR comment even when risk tier is LOW — set false to reduce noise on routine PRs'
+    required: false
+    default: 'true'
+
+outputs:
+  risk-tier:
+    description: 'Risk tier from the analysis: high, med, or low'
+    value: ${{ steps.set-outputs.outputs.risk-tier }}
+  risk-score:
+    description: 'Numeric risk score from 0 to 100'
+    value: ${{ steps.set-outputs.outputs.risk-score }}
 
 runs:
   using: composite
@@ -36,11 +60,50 @@ runs:
 
     - name: Discover test files
       shell: bash
+      env:
+        QO_TEST_DIR: ${{ inputs.test-dir }}
       run: |
-        qo list-tests > /tmp/qo_known_tests.txt
+        if [ -n "$QO_TEST_DIR" ]; then
+          qo list-tests "$QO_TEST_DIR" > /tmp/qo_known_tests.txt
+        else
+          qo list-tests > /tmp/qo_known_tests.txt
+        fi
         echo "Discovered $(wc -l < /tmp/qo_known_tests.txt | tr -d ' ') test file(s)"
 
-    - name: Analyze PR and generate comment
+    - name: Analyze PR
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        QO_PR_NUMBER: ${{ github.event.pull_request.number }}
+        QO_REPO: ${{ github.repository }}
+      run: |
+        KNOWN_ARGS=()
+        while IFS= read -r f; do
+          [ -n "$f" ] && KNOWN_ARGS+=(--known-test-files "$f")
+        done < /tmp/qo_known_tests.txt
+
+        qo analyze \
+          --pr "$QO_PR_NUMBER" \
+          --repo "$QO_REPO" \
+          --json \
+          "${KNOWN_ARGS[@]}" > /tmp/qo_result.json
+
+    - name: Set outputs
+      id: set-outputs
+      shell: bash
+      run: |
+        python3 - <<'EOF'
+        import json, os
+        d = json.load(open('/tmp/qo_result.json'))
+        tier, score = d['tier'], d['risk_score']
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+            f.write(f'risk-tier={tier}\nrisk-score={score}\n')
+        open('/tmp/qo_tier.txt', 'w').write(tier)
+        open('/tmp/qo_score.txt', 'w').write(str(score))
+        print(f'Risk: {tier} ({score}/100)')
+        EOF
+
+    - name: Generate PR comment
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
@@ -48,7 +111,15 @@ runs:
         QO_REPO: ${{ github.repository }}
         QO_GENERATE_STUBS: ${{ inputs.generate-stubs }}
         QO_FRAMEWORK: ${{ inputs.framework }}
+        QO_COMMENT_ON_LOW: ${{ inputs.comment-on-low }}
       run: |
+        TIER=$(cat /tmp/qo_tier.txt)
+        if [ "$QO_COMMENT_ON_LOW" = "false" ] && [ "$TIER" = "low" ]; then
+          echo "Risk is LOW and comment-on-low=false — skipping comment"
+          touch /tmp/qo_comment.md
+          exit 0
+        fi
+
         KNOWN_ARGS=()
         while IFS= read -r f; do
           [ -n "$f" ] && KNOWN_ARGS+=(--known-test-files "$f")
@@ -72,9 +143,13 @@ runs:
         QO_PR_NUMBER: ${{ github.event.pull_request.number }}
         QO_REPO: ${{ github.repository }}
       run: |
+        if [ ! -s /tmp/qo_comment.md ]; then
+          echo "No comment to post"
+          exit 0
+        fi
+
         COMMENT_BODY=$(cat /tmp/qo_comment.md)
 
-        # Find existing QO comment to update — no duplicate storm (D1)
         COMMENT_ID=$(gh api "repos/$QO_REPO/issues/$QO_PR_NUMBER/comments" \
           --jq '[.[] | select(.body | contains("<!-- quality-orchestrator -->"))] | last | .id // empty')
 
@@ -84,4 +159,16 @@ runs:
         else
           gh api "repos/$QO_REPO/issues/$QO_PR_NUMBER/comments" -X POST -f "body=$COMMENT_BODY"
           echo "Created new PR comment"
+        fi
+
+    - name: Fail on HIGH risk
+      shell: bash
+      env:
+        QO_FAIL_ON_HIGH: ${{ inputs.fail-on-high }}
+      run: |
+        TIER=$(cat /tmp/qo_tier.txt)
+        SCORE=$(cat /tmp/qo_score.txt)
+        if [ "$QO_FAIL_ON_HIGH" = "true" ] && [ "$TIER" = "high" ]; then
+          echo "::error::Quality Orchestrator: HIGH risk ($SCORE/100) — merge blocked by fail-on-high"
+          exit 1
         fi
