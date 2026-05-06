@@ -34,8 +34,10 @@ inputs:
 outputs:
   risk-tier:
     description: 'Risk tier from the analysis: high, med, or low'
+    value: ${{ steps.set-outputs.outputs.risk-tier }}
   risk-score:
     description: 'Numeric risk score from 0 to 100'
+    value: ${{ steps.set-outputs.outputs.risk-score }}
 
 runs:
   using: composite
@@ -87,13 +89,19 @@ runs:
           "${KNOWN_ARGS[@]}" > /tmp/qo_result.json
 
     - name: Set outputs
+      id: set-outputs
       shell: bash
       run: |
-        TIER=$(jq -r '.tier' /tmp/qo_result.json)
-        SCORE=$(jq -r '.risk_score' /tmp/qo_result.json)
-        echo "risk-tier=$TIER" >> "$GITHUB_OUTPUT"
-        echo "risk-score=$SCORE" >> "$GITHUB_OUTPUT"
-        echo "Risk: $TIER ($SCORE/100)"
+        python3 - <<'EOF'
+        import json, os
+        d = json.load(open('/tmp/qo_result.json'))
+        tier, score = d['tier'], d['risk_score']
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+            f.write(f'risk-tier={tier}\nrisk-score={score}\n')
+        open('/tmp/qo_tier.txt', 'w').write(tier)
+        open('/tmp/qo_score.txt', 'w').write(str(score))
+        print(f'Risk: {tier} ({score}/100)')
+        EOF
 
     - name: Generate PR comment
       shell: bash
@@ -105,7 +113,7 @@ runs:
         QO_FRAMEWORK: ${{ inputs.framework }}
         QO_COMMENT_ON_LOW: ${{ inputs.comment-on-low }}
       run: |
-        TIER=$(jq -r '.tier' /tmp/qo_result.json)
+        TIER=$(cat /tmp/qo_tier.txt)
         if [ "$QO_COMMENT_ON_LOW" = "false" ] && [ "$TIER" = "low" ]; then
           echo "Risk is LOW and comment-on-low=false — skipping comment"
           touch /tmp/qo_comment.md
@@ -158,8 +166,8 @@ runs:
       env:
         QO_FAIL_ON_HIGH: ${{ inputs.fail-on-high }}
       run: |
-        TIER=$(jq -r '.tier' /tmp/qo_result.json)
-        SCORE=$(jq -r '.risk_score' /tmp/qo_result.json)
+        TIER=$(cat /tmp/qo_tier.txt)
+        SCORE=$(cat /tmp/qo_score.txt)
         if [ "$QO_FAIL_ON_HIGH" = "true" ] && [ "$TIER" = "high" ]; then
           echo "::error::Quality Orchestrator: HIGH risk ($SCORE/100) — merge blocked by fail-on-high"
           exit 1
