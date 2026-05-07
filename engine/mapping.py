@@ -1,3 +1,4 @@
+import json
 import re
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -85,6 +86,42 @@ def get_file_category(path: str) -> Optional[str]:
         if f"/{cat}/" in normalized or f"/{cat}." in normalized or normalized.startswith(f"{cat}/"):
             return cat
     return None
+
+
+def detect_js_runner(repo_root: str = ".") -> str:
+    """Detect the JS/TS test runner from project config files or package.json.
+
+    Priority: vitest > jest > playwright (config files first, then package.json).
+    Falls back to 'vitest' as the modern default.
+    """
+    root = Path(repo_root)
+    vitest_configs = ["vitest.config.ts", "vitest.config.js", "vitest.config.mts", "vitest.config.mjs"]
+    if any((root / f).exists() for f in vitest_configs):
+        return "vitest"
+    jest_configs = ["jest.config.ts", "jest.config.js", "jest.config.json", "jest.config.cjs", "jest.config.mjs"]
+    if any((root / f).exists() for f in jest_configs):
+        return "jest"
+    playwright_configs = ["playwright.config.ts", "playwright.config.js"]
+    if any((root / f).exists() for f in playwright_configs):
+        return "playwright"
+    pkg_path = root / "package.json"
+    if pkg_path.exists():
+        try:
+            pkg = json.loads(pkg_path.read_text(encoding="utf-8"))
+            test_script = pkg.get("scripts", {}).get("test", "")
+            for runner in ("vitest", "jest", "playwright"):
+                if re.search(r"\b" + runner + r"\b", test_script):
+                    return runner
+            deps = {**pkg.get("dependencies", {}), **pkg.get("devDependencies", {})}
+            if "vitest" in deps:
+                return "vitest"
+            if "jest" in deps or "@jest/core" in deps:
+                return "jest"
+            if "@playwright/test" in deps:
+                return "playwright"
+        except Exception:
+            pass
+    return "vitest"
 
 
 def is_test_file(path: str) -> bool:
