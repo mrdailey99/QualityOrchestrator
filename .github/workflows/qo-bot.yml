@@ -26,8 +26,8 @@ jobs:
           if [[ "$PERM" != "write" && "$PERM" != "maintain" && "$PERM" != "admin" ]]; then
             gh api "repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
               -X POST -f content="-1" --silent || true
-            echo "::error::Insufficient permission ($PERM) — only repo collaborators can trigger /qo stub"
-            exit 1
+            echo "Insufficient permission ($PERM) — skipping"
+            exit 0
           fi
 
       - name: Parse and validate file path
@@ -57,6 +57,10 @@ jobs:
           ref: ${{ steps.pr.outputs.head_ref }}
           token: ${{ github.token }}
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Install Quality Orchestrator
         run: pip install -e ".[action,cli]" --quiet
 
@@ -66,13 +70,9 @@ jobs:
           SRC_FILE: ${{ steps.parse.outputs.file }}
           PR_NUMBER: ${{ github.event.issue.number }}
         run: |
-          STUB_PATH=$(qo stub "$SRC_FILE" --pr "$PR_NUMBER" 2>/dev/null)
+          STUB_PATH=$(qo stub "$SRC_FILE" --pr "$PR_NUMBER")
           if [[ -z "$STUB_PATH" ]]; then
             echo "::error::qo stub produced no output for $SRC_FILE"
-            exit 1
-          fi
-          if [[ -f "$STUB_PATH" ]]; then
-            echo "::error::$STUB_PATH already exists — use --no-write locally to preview, then commit manually"
             exit 1
           fi
           echo "stub_path=$STUB_PATH" >> "$GITHUB_OUTPUT"
