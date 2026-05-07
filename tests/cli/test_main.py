@@ -537,20 +537,27 @@ class TestKnownTestFilesDedup:
 # ---------------------------------------------------------------------------
 
 class TestRepoRoot:
-    def test_repo_root_returns_string(self):
-        root = _repo_root()
-        assert isinstance(root, str)
-        assert len(root) > 0
+    def test_finds_root_with_dot_git_dir(self, tmp_path, monkeypatch):
+        (tmp_path / ".git").mkdir()
+        monkeypatch.chdir(tmp_path)
+        assert _repo_root() == str(tmp_path)
 
-    def test_repo_root_is_existing_directory(self):
-        from pathlib import Path
-        root = _repo_root()
-        assert Path(root).is_dir()
+    def test_finds_root_from_subdirectory(self, tmp_path, monkeypatch):
+        (tmp_path / ".git").mkdir()
+        subdir = tmp_path / "src" / "api"
+        subdir.mkdir(parents=True)
+        monkeypatch.chdir(subdir)
+        assert _repo_root() == str(tmp_path)
 
-    def test_repo_root_contains_dot_git(self):
-        from pathlib import Path
-        root = _repo_root()
-        assert (Path(root) / ".git").exists()
+    def test_finds_root_with_dot_git_file_worktree(self, tmp_path, monkeypatch):
+        # Simulate a git worktree where .git is a file, not a directory
+        (tmp_path / ".git").write_text("gitdir: /some/other/path/.git/worktrees/wt")
+        monkeypatch.chdir(tmp_path)
+        assert _repo_root() == str(tmp_path)
+
+    def test_falls_back_to_dot_when_no_git(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        assert _repo_root() == "."
 
 
 # ---------------------------------------------------------------------------

@@ -916,9 +916,10 @@ def _write_stubs(
     from generation.templates import generate_stub
 
     results: list[tuple[str, str]] = []
+    repo_root = _repo_root()
     _progress.print("[yellow]Generating stubs...[/]")
     for src in missing:
-        test_path, content = generate_stub(src, pr_number, framework=framework, repo_root=_repo_root())
+        test_path, content = generate_stub(src, pr_number, framework=framework, repo_root=repo_root)
         out = Path(test_path)
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(content, encoding="utf-8")
