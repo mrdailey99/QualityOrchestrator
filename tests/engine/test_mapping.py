@@ -1,10 +1,11 @@
 """Tests for engine/mapping.py — convention_map, fuzzy_match, and discovery helpers."""
+import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from engine.mapping import convention_map, fuzzy_match, get_file_category, is_test_file
+from engine.mapping import convention_map, detect_js_runner, fuzzy_match, get_file_category, is_test_file
 
 
 # ---------------------------------------------------------------------------
@@ -150,3 +151,95 @@ class TestListTestsDiscovery:
             "src/engine.py",
         ]
         assert len([f for f in files if is_test_file(f)]) == 3
+
+
+# ---------------------------------------------------------------------------
+# Unit: detect_js_runner
+# ---------------------------------------------------------------------------
+
+class TestDetectJsRunner:
+    def test_returns_vitest_when_vitest_config_ts_present(self, tmp_path):
+        (tmp_path / "vitest.config.ts").write_text("export default {};")
+        assert detect_js_runner(str(tmp_path)) == "vitest"
+
+    def test_returns_vitest_when_vitest_config_js_present(self, tmp_path):
+        (tmp_path / "vitest.config.js").write_text("module.exports = {};")
+        assert detect_js_runner(str(tmp_path)) == "vitest"
+
+    def test_returns_vitest_when_vitest_config_mts_present(self, tmp_path):
+        (tmp_path / "vitest.config.mts").write_text("export default {};")
+        assert detect_js_runner(str(tmp_path)) == "vitest"
+
+    def test_returns_jest_when_jest_config_ts_present(self, tmp_path):
+        (tmp_path / "jest.config.ts").write_text("export default {};")
+        assert detect_js_runner(str(tmp_path)) == "jest"
+
+    def test_returns_jest_when_jest_config_js_present(self, tmp_path):
+        (tmp_path / "jest.config.js").write_text("module.exports = {};")
+        assert detect_js_runner(str(tmp_path)) == "jest"
+
+    def test_vitest_config_takes_priority_over_jest_config(self, tmp_path):
+        (tmp_path / "vitest.config.ts").write_text("export default {};")
+        (tmp_path / "jest.config.ts").write_text("module.exports = {};")
+        assert detect_js_runner(str(tmp_path)) == "vitest"
+
+    def test_returns_playwright_when_playwright_config_ts_present(self, tmp_path):
+        (tmp_path / "playwright.config.ts").write_text("export default {};")
+        assert detect_js_runner(str(tmp_path)) == "playwright"
+
+    def test_returns_playwright_when_playwright_config_js_present(self, tmp_path):
+        (tmp_path / "playwright.config.js").write_text("module.exports = {};")
+        assert detect_js_runner(str(tmp_path)) == "playwright"
+
+    def test_jest_config_takes_priority_over_playwright_config(self, tmp_path):
+        (tmp_path / "jest.config.js").write_text("module.exports = {};")
+        (tmp_path / "playwright.config.ts").write_text("export default {};")
+        assert detect_js_runner(str(tmp_path)) == "jest"
+
+    def test_detects_vitest_from_package_json_test_script(self, tmp_path):
+        pkg = {"scripts": {"test": "vitest run"}}
+        (tmp_path / "package.json").write_text(json.dumps(pkg))
+        assert detect_js_runner(str(tmp_path)) == "vitest"
+
+    def test_detects_jest_from_package_json_test_script(self, tmp_path):
+        pkg = {"scripts": {"test": "jest --coverage"}}
+        (tmp_path / "package.json").write_text(json.dumps(pkg))
+        assert detect_js_runner(str(tmp_path)) == "jest"
+
+    def test_detects_playwright_from_package_json_test_script(self, tmp_path):
+        pkg = {"scripts": {"test": "playwright test"}}
+        (tmp_path / "package.json").write_text(json.dumps(pkg))
+        assert detect_js_runner(str(tmp_path)) == "playwright"
+
+    def test_detects_vitest_from_package_json_deps(self, tmp_path):
+        pkg = {"devDependencies": {"vitest": "^1.0.0"}}
+        (tmp_path / "package.json").write_text(json.dumps(pkg))
+        assert detect_js_runner(str(tmp_path)) == "vitest"
+
+    def test_detects_jest_from_package_json_deps(self, tmp_path):
+        pkg = {"devDependencies": {"jest": "^29.0.0"}}
+        (tmp_path / "package.json").write_text(json.dumps(pkg))
+        assert detect_js_runner(str(tmp_path)) == "jest"
+
+    def test_detects_playwright_from_package_json_deps(self, tmp_path):
+        pkg = {"devDependencies": {"@playwright/test": "^1.40.0"}}
+        (tmp_path / "package.json").write_text(json.dumps(pkg))
+        assert detect_js_runner(str(tmp_path)) == "playwright"
+
+    def test_vitest_dep_takes_priority_over_playwright_dep(self, tmp_path):
+        pkg = {"devDependencies": {"vitest": "^1.0.0", "@playwright/test": "^1.40.0"}}
+        (tmp_path / "package.json").write_text(json.dumps(pkg))
+        assert detect_js_runner(str(tmp_path)) == "vitest"
+
+    def test_falls_back_to_vitest_when_no_config_found(self, tmp_path):
+        # empty directory — no config files, no package.json
+        assert detect_js_runner(str(tmp_path)) == "vitest"
+
+    def test_falls_back_to_vitest_on_malformed_package_json(self, tmp_path):
+        (tmp_path / "package.json").write_text("not valid json {{{{")
+        assert detect_js_runner(str(tmp_path)) == "vitest"
+
+    def test_falls_back_to_vitest_when_package_json_has_no_scripts_or_deps(self, tmp_path):
+        pkg = {"name": "my-app", "version": "1.0.0"}
+        (tmp_path / "package.json").write_text(json.dumps(pkg))
+        assert detect_js_runner(str(tmp_path)) == "vitest"

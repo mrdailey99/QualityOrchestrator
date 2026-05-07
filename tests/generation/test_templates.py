@@ -18,7 +18,7 @@ class TestStubGeneration:
         assert path == "tests/lib/fraud.spec.js"
 
     def test_js_stub_contains_describe(self):
-        _, content = generate_stub("src/lib/fraud.js")
+        _, content = generate_stub("src/lib/fraud.js", framework="playwright")
         assert "test.describe" in content
         assert "fraud" in content
 
@@ -51,10 +51,11 @@ class TestFrameworkDetection:
         assert path.endswith(".py")
         assert "import pytest" in content
 
-    def test_auto_js_file_gets_playwright_stub(self):
+    def test_auto_js_file_gets_js_stub(self):
         path, content = generate_stub("src/api/user.js", framework="auto")
         assert path.endswith(".js")
-        assert "playwright" in content.lower()
+        # auto-detection returns a JS stub (not pytest), runner depends on project config
+        assert "import pytest" not in content
 
     def test_force_pytest_on_js_file(self):
         _, content = generate_stub("src/api/user.js", framework="pytest")
@@ -64,11 +65,25 @@ class TestFrameworkDetection:
         _, content = generate_stub("src/api/user.py", framework="playwright")
         assert "playwright" in content.lower()
 
-    def test_mixed_repo_auto_detects_per_file(self):
+    def test_force_vitest_stub(self):
+        _, content = generate_stub("src/api/user.ts", framework="vitest")
+        assert "from 'vitest'" in content
+        assert "describe" in content
+
+    def test_force_jest_stub(self):
+        _, content = generate_stub("src/api/user.ts", framework="jest")
+        assert "describe" in content
+        assert "it(" in content
+        assert "@playwright" not in content
+
+    def test_force_playwright_stub(self):
+        _, content = generate_stub("src/api/user.ts", framework="playwright")
+        assert "playwright" in content.lower()
+        assert "test.describe" in content
+
+    def test_auto_python_file_in_mixed_repo(self):
         _, py_content = generate_stub("src/engine.py", framework="auto")
-        _, js_content = generate_stub("src/ui/button.js", framework="auto")
         assert "import pytest" in py_content
-        assert "playwright" in js_content.lower()
 
     def test_invalid_framework_raises(self):
         with pytest.raises(ValueError, match="Unknown framework"):
