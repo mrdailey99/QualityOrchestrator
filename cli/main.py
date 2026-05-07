@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 from typing import Annotated, Optional
 
+from engine.mapping import detect_js_runner
+
 import typer
 from rich import box as rbox
 from rich.console import Console
@@ -56,7 +58,7 @@ def analyze(
     generate_stubs: Annotated[bool, typer.Option("--generate-stubs", "-g", help="Write stub files for missing coverage")] = False,
     known_test_files: Annotated[Optional[list[str]], typer.Option("--known-test-files", help="Known test file paths (pass once per file)")] = None,
     test_dir: Annotated[Optional[str], typer.Option("--test-dir", "-t", help="Directory to scan for test files")] = None,
-    framework: Annotated[str, typer.Option("--framework", help="Stub framework override: auto, pytest, playwright")] = "auto",
+    framework: Annotated[str, typer.Option("--framework", help="Stub framework override: auto, pytest, vitest, jest, playwright")] = "auto",
     tui: Annotated[bool, typer.Option("--tui", help="Render results in interactive TUI mode")] = False,
 ) -> None:
     """Analyze a GitHub PR: fetch diff, map tests, score risk."""
@@ -106,7 +108,7 @@ def analyze(
 
     if output_format == "markdown":
         stubs = _write_stubs(result.missing_coverage, pr, framework) if (generate_stubs and result.missing_coverage) else None
-        typer.echo(_format_markdown(pr, repo, pr_data.get("title", ""), result, stubs=stubs, total_tests=total_known))
+        typer.echo(_format_markdown(pr, repo, pr_data.get("title", ""), result, stubs=stubs, total_tests=total_known, js_runner=detect_js_runner()))
         return
 
     if tui:
@@ -131,7 +133,7 @@ def analyze_local(
     output_json: Annotated[bool, typer.Option("--json", help="Output raw JSON")] = False,
     output_format: Annotated[str, typer.Option("--format", help="Output format: rich or markdown")] = "rich",
     generate_stubs: Annotated[bool, typer.Option("--generate-stubs", "-g", help="Write stubs for missing coverage")] = False,
-    framework: Annotated[str, typer.Option("--framework", help="Stub framework override: auto, pytest, playwright")] = "auto",
+    framework: Annotated[str, typer.Option("--framework", help="Stub framework override: auto, pytest, vitest, jest, playwright")] = "auto",
     test_dir: Annotated[Optional[str], typer.Option("--test-dir", "-t", help="Directory to scan for test files")] = None,
     tui: Annotated[bool, typer.Option("--tui", help="Render results in interactive TUI mode")] = False,
 ) -> None:
@@ -158,7 +160,7 @@ def analyze_local(
 
     if output_format == "markdown":
         stubs = _write_stubs(result.missing_coverage, None, framework) if (generate_stubs and result.missing_coverage) else None
-        typer.echo(_format_markdown(None, None, "local analysis", result, stubs=stubs, total_tests=total_known))
+        typer.echo(_format_markdown(None, None, "local analysis", result, stubs=stubs, total_tests=total_known, js_runner=detect_js_runner()))
         return
 
     if tui:
@@ -228,7 +230,7 @@ def analyze_staged(
 
     if output_format == "markdown":
         stubs = _write_stubs(result.missing_coverage, None, framework) if (generate_stubs and result.missing_coverage) else None
-        typer.echo(_format_markdown(None, None, ctx_label, result, stubs=stubs, total_tests=total_known))
+        typer.echo(_format_markdown(None, None, ctx_label, result, stubs=stubs, total_tests=total_known, js_runner=detect_js_runner()))
         if hook:
             _hook_exit(result)
         return
@@ -707,38 +709,59 @@ def _md_path(path: str) -> str:
     return path.replace("`", "&#96;")
 
 
-def _run_command(test_files: list[str]) -> str:
+_JS_RUNNER_CMD: dict[str, list[str]] = {
+    "vitest": ["npx", "vitest", "run"],
+    "jest": ["npx", "jest"],
+    "playwright": ["npx", "playwright", "test"],
+}
+_JS_RUNNER_STR: dict[str, str] = {
+    "vitest": "npx vitest run",
+    "jest": "npx jest",
+    "playwright": "npx playwright test",
+}
+
+
+def _run_command(test_files: list[str], js_runner: Optional[str] = None) -> str:
     """Return the shell command for markdown/PR comment display (uses line continuations)."""
+    if js_runner is None:
+        js_runner = detect_js_runner()
     py = [f for f in test_files if f.endswith(".py")]
     js = [f for f in test_files if not f.endswith(".py")]
     parts = []
     if py:
         parts.append("pytest \\\n  " + " \\\n  ".join(_md_path(f) for f in py))
     if js:
-        parts.append("npx playwright test \\\n  " + " \\\n  ".join(_md_path(f) for f in js))
+        runner_str = _JS_RUNNER_STR.get(js_runner, _JS_RUNNER_STR["vitest"])
+        parts.append(f"{runner_str} \\\n  " + " \\\n  ".join(_md_path(f) for f in js))
     return "\n\n".join(parts)
 
 
-def _run_command_cli(test_files: list[str]) -> str:
+def _run_command_cli(test_files: list[str], js_runner: Optional[str] = None) -> str:
     """Return the shell command for terminal display (quoted paths, no line continuations)."""
+    if js_runner is None:
+        js_runner = detect_js_runner()
     py = [f for f in test_files if f.endswith(".py")]
     js = [f for f in test_files if not f.endswith(".py")]
     parts = []
     if py:
         parts.append("pytest " + " ".join(shlex.quote(f) for f in py))
     if js:
-        parts.append("npx playwright test " + " ".join(shlex.quote(f) for f in js))
+        runner_str = _JS_RUNNER_STR.get(js_runner, _JS_RUNNER_STR["vitest"])
+        parts.append(f"{runner_str} " + " ".join(shlex.quote(f) for f in js))
     return "\n".join(parts)
 
 
-def _run_tests(test_files: list[str]) -> None:
+def _run_tests(test_files: list[str], js_runner: Optional[str] = None) -> None:
     """Execute test files directly using a list-based subprocess call (no shell, no injection risk)."""
+    if js_runner is None:
+        js_runner = detect_js_runner()
     py = [f for f in test_files if f.endswith(".py")]
     js = [f for f in test_files if not f.endswith(".py")]
     if py:
-        subprocess.run(["pytest"] + py)
+        subprocess.run(["pytest", "--"] + py)
     if js:
-        subprocess.run(["npx", "playwright", "test"] + js)
+        runner_cmd = _JS_RUNNER_CMD.get(js_runner, _JS_RUNNER_CMD["vitest"])
+        subprocess.run(runner_cmd + ["--"] + js)
 
 
 def _format_markdown(
@@ -748,6 +771,7 @@ def _format_markdown(
     result,
     stubs: Optional[list[tuple[str, str]]] = None,
     total_tests: int = 0,
+    js_runner: Optional[str] = None,
 ) -> str:
     """Render analysis result as a GitHub PR comment (Markdown)."""
     tier = result.tier.upper()
@@ -781,7 +805,7 @@ def _format_markdown(
             "<summary>▶&nbsp;Run command</summary>",
             "",
             "```bash",
-            _run_command(result.selected_tests),
+            _run_command(result.selected_tests, js_runner=js_runner),
             "```",
             "",
             "</details>",
@@ -804,7 +828,7 @@ def _format_markdown(
             lines.append(f"- [ ] `{_md_path(m)}`")
         lines.append("")
         first = _md_path(result.missing_coverage[0])
-        lines.append(f"> 💡 Reply `@qo stub {first}` to generate a test scaffold.")
+        lines.append(f"> 💡 Run locally: `qo stub {first}` to generate a test scaffold.")
         lines.append("")
 
     # ── Generated Stubs ──────────────────────────────────────────────────────
@@ -832,7 +856,7 @@ def _format_markdown(
     # ── Footer ───────────────────────────────────────────────────────────────
     lines.append("---")
     lines.append("")
-    lines.append("<sub>⚡ quality-orchestrator &nbsp;·&nbsp; `@qo stub <file>` &nbsp;·&nbsp; `@qo why?` &nbsp;·&nbsp; `@qo run all`</sub>")
+    lines.append("<sub>⚡ quality-orchestrator &nbsp;·&nbsp; `qo stub <file>` &nbsp;·&nbsp; `qo analyze --local`</sub>")
     lines.append("")
     lines.append("<!-- quality-orchestrator -->")
     return "\n".join(lines)
