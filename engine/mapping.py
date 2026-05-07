@@ -101,7 +101,7 @@ def detect_js_runner(repo_root: str = ".") -> str:
     jest_configs = ["jest.config.ts", "jest.config.js", "jest.config.json", "jest.config.cjs", "jest.config.mjs"]
     if any((root / f).exists() for f in jest_configs):
         return "jest"
-    playwright_configs = ["playwright.config.ts", "playwright.config.js"]
+    playwright_configs = ["playwright.config.ts", "playwright.config.js", "playwright.config.mjs", "playwright.config.cjs"]
     if any((root / f).exists() for f in playwright_configs):
         return "playwright"
     pkg_path = root / "package.json"

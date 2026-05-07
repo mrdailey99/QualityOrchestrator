@@ -1,7 +1,7 @@
 """Tests for cli/main.py — markdown rendering and stub truncation."""
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
@@ -214,7 +214,7 @@ class TestMarkdownOutput:
         result = engine.analyze(["src/api/user.js"])
         md = _format_markdown(1, "owner/repo", "Test PR", result)
         assert "qo stub" in md
-        assert "qo analyze" in md
+        assert "qo analyze-local" in md
 
     def test_yaml_files_excluded_from_missing_coverage(self, engine):
         result = engine.analyze(

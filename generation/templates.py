@@ -10,6 +10,7 @@ def generate_stub(
     src_file: str,
     pr_number: Optional[int] = None,
     framework: str = "auto",
+    repo_root: str = ".",
 ) -> tuple[str, str]:
     """Return (test_path, stub_content) for a source file with no coverage.
 
@@ -30,7 +31,7 @@ def generate_stub(
     ext = Path(src_file).suffix.lower().lstrip(".")
     if ext == "py":
         return _python_stub(src_file, pr_number)
-    runner = detect_js_runner()
+    runner = detect_js_runner(repo_root=repo_root)
     if runner == "playwright":
         return _playwright_stub(src_file, pr_number)
     if runner == "jest":
@@ -49,7 +50,7 @@ def _playwright_stub(src_file: str, pr_number: Optional[int]) -> tuple[str, str]
 
     test_dir = "tests/" + "/".join(dir_parts) if dir_parts else "tests"
     test_path = f"{test_dir}/{stem}.spec{suffix}"
-    import_path = "../" * (test_path.count("/")) + src_file
+    import_path = "../" * (test_path.count("/")) + path.as_posix()
 
     pr_note = f" on PR #{pr_number}" if pr_number else ""
     content = f"""import {{ test, expect }} from '@playwright/test';
@@ -89,7 +90,7 @@ def _vitest_stub(src_file: str, pr_number: Optional[int]) -> tuple[str, str]:
 
     test_dir = "tests/" + "/".join(dir_parts) if dir_parts else "tests"
     test_path = f"{test_dir}/{stem}.spec{suffix}"
-    import_path = "../" * (test_path.count("/")) + src_file
+    import_path = "../" * (test_path.count("/")) + path.as_posix()
 
     pr_note = f" on PR #{pr_number}" if pr_number else ""
     content = f"""import {{ describe, it, expect }} from 'vitest';
@@ -127,7 +128,7 @@ def _jest_stub(src_file: str, pr_number: Optional[int]) -> tuple[str, str]:
 
     test_dir = "tests/" + "/".join(dir_parts) if dir_parts else "tests"
     test_path = f"{test_dir}/{stem}.spec{suffix}"
-    import_path = "../" * (test_path.count("/")) + src_file
+    import_path = "../" * (test_path.count("/")) + path.as_posix()
 
     pr_note = f" on PR #{pr_number}" if pr_number else ""
     content = f"""import {{ {stem} }} from '{import_path}';

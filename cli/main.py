@@ -108,7 +108,7 @@ def analyze(
 
     if output_format == "markdown":
         stubs = _write_stubs(result.missing_coverage, pr, framework) if (generate_stubs and result.missing_coverage) else None
-        typer.echo(_format_markdown(pr, repo, pr_data.get("title", ""), result, stubs=stubs, total_tests=total_known, js_runner=detect_js_runner()))
+        typer.echo(_format_markdown(pr, repo, pr_data.get("title", ""), result, stubs=stubs, total_tests=total_known, js_runner=detect_js_runner(repo_root=_repo_root())))
         return
 
     if tui:
@@ -160,7 +160,7 @@ def analyze_local(
 
     if output_format == "markdown":
         stubs = _write_stubs(result.missing_coverage, None, framework) if (generate_stubs and result.missing_coverage) else None
-        typer.echo(_format_markdown(None, None, "local analysis", result, stubs=stubs, total_tests=total_known, js_runner=detect_js_runner()))
+        typer.echo(_format_markdown(None, None, "local analysis", result, stubs=stubs, total_tests=total_known, js_runner=detect_js_runner(repo_root=_repo_root())))
         return
 
     if tui:
@@ -230,7 +230,7 @@ def analyze_staged(
 
     if output_format == "markdown":
         stubs = _write_stubs(result.missing_coverage, None, framework) if (generate_stubs and result.missing_coverage) else None
-        typer.echo(_format_markdown(None, None, ctx_label, result, stubs=stubs, total_tests=total_known, js_runner=detect_js_runner()))
+        typer.echo(_format_markdown(None, None, ctx_label, result, stubs=stubs, total_tests=total_known, js_runner=detect_js_runner(repo_root=_repo_root())))
         if hook:
             _hook_exit(result)
         return
@@ -629,6 +629,11 @@ def _find_git_dir() -> Optional[Path]:
     return None
 
 
+def _repo_root() -> str:
+    git_dir = _find_git_dir()
+    return str(git_dir.parent) if git_dir else "."
+
+
 def _hook_script(hook_type: str, base: str) -> str:
     """Return the shell script content for the given hook type."""
     safe_base = shlex.quote(base)
@@ -723,10 +728,10 @@ _JS_RUNNER_STR: dict[str, str] = {
 
 def _run_command(test_files: list[str], js_runner: Optional[str] = None) -> str:
     """Return the shell command for markdown/PR comment display (uses line continuations)."""
-    if js_runner is None:
-        js_runner = detect_js_runner()
     py = [f for f in test_files if f.endswith(".py")]
     js = [f for f in test_files if not f.endswith(".py")]
+    if js_runner is None and js:
+        js_runner = detect_js_runner()
     parts = []
     if py:
         parts.append("pytest \\\n  " + " \\\n  ".join(_md_path(f) for f in py))
@@ -738,10 +743,10 @@ def _run_command(test_files: list[str], js_runner: Optional[str] = None) -> str:
 
 def _run_command_cli(test_files: list[str], js_runner: Optional[str] = None) -> str:
     """Return the shell command for terminal display (quoted paths, no line continuations)."""
-    if js_runner is None:
-        js_runner = detect_js_runner()
     py = [f for f in test_files if f.endswith(".py")]
     js = [f for f in test_files if not f.endswith(".py")]
+    if js_runner is None and js:
+        js_runner = detect_js_runner()
     parts = []
     if py:
         parts.append("pytest " + " ".join(shlex.quote(f) for f in py))
@@ -753,10 +758,10 @@ def _run_command_cli(test_files: list[str], js_runner: Optional[str] = None) -> 
 
 def _run_tests(test_files: list[str], js_runner: Optional[str] = None) -> None:
     """Execute test files directly using a list-based subprocess call (no shell, no injection risk)."""
-    if js_runner is None:
-        js_runner = detect_js_runner()
     py = [f for f in test_files if f.endswith(".py")]
     js = [f for f in test_files if not f.endswith(".py")]
+    if js_runner is None and js:
+        js_runner = detect_js_runner()
     if py:
         subprocess.run(["pytest", "--"] + py)
     if js:
@@ -856,7 +861,7 @@ def _format_markdown(
     # ── Footer ───────────────────────────────────────────────────────────────
     lines.append("---")
     lines.append("")
-    lines.append("<sub>⚡ quality-orchestrator &nbsp;·&nbsp; `qo stub <file>` &nbsp;·&nbsp; `qo analyze --local`</sub>")
+    lines.append("<sub>⚡ quality-orchestrator &nbsp;·&nbsp; `qo stub <file>` &nbsp;·&nbsp; `qo analyze-local`</sub>")
     lines.append("")
     lines.append("<!-- quality-orchestrator -->")
     return "\n".join(lines)
