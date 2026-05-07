@@ -162,6 +162,33 @@ qo list-tests packages/api/tests/
 
 ---
 
+### `qo stub`
+
+Generate a test stub for a single source file without running a full analysis.
+
+```
+qo stub <file> [options]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--framework` | Framework: `auto` (default), `pytest`, `vitest`, `jest`, `playwright` |
+| `--pr` | PR number to embed in stub annotation |
+| `--write` / `--no-write` | Write stub to disk (default) or print content to stdout |
+
+```bash
+# Generate and write a stub for a source file
+qo stub src/api/user.js
+
+# Preview stub content without writing to disk
+qo stub src/api/user.js --no-write
+
+# Generate with an explicit framework
+qo stub src/api/user.js --framework vitest
+```
+
+---
+
 ### `qo serve`
 
 Start the Quality Orchestrator REST API server.
@@ -242,6 +269,54 @@ Use outputs to drive downstream steps:
 ```
 
 The action posts a Markdown analysis comment to the PR with risk tier, selected tests, and missing coverage gaps. On re-push the comment is updated in place — no duplicate comments.
+
+### PR Comment Bot (`/qo stub`)
+
+Add `.github/workflows/qo-bot.yml` to enable the `/qo stub` comment command on PRs. When a repo collaborator posts a comment containing `/qo stub <file>`, the bot:
+
+1. Validates the commenter has at least `write` permission.
+2. Runs `qo stub <file> --pr <number>` to generate the stub.
+3. Commits the stub file directly to the PR branch.
+4. Replies with the committed path (or an Actions log link on failure).
+
+```yaml
+name: QO Bot
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  qo-stub:
+    if: >
+      github.event.issue.pull_request != null &&
+      startsWith(github.event.comment.body, '/qo stub ')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ github.event.issue.number }}/head
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install -e ".[action,cli]" --quiet
+
+      - name: Generate and commit stub
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          FILE="${COMMENT_BODY#/qo stub }"
+          qo stub "$FILE" --pr ${{ github.event.issue.number }}
+```
+
+See `.github/workflows/qo-bot.yml` in this repo for the full workflow with permission checks, path validation, and failure replies.
 
 ---
 
