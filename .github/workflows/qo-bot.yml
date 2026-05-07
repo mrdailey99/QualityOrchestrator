@@ -1,0 +1,111 @@
+name: QO Bot
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  qo-stub:
+    if: >
+      github.event.issue.pull_request != null &&
+      startsWith(github.event.comment.body, '/qo stub ')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check commenter permission
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PERM=$(gh api "repos/${{ github.repository }}/collaborators/${{ github.event.comment.user.login }}/permission" \
+            --jq '.permission' 2>/dev/null || echo "none")
+          if [[ "$PERM" != "write" && "$PERM" != "maintain" && "$PERM" != "admin" ]]; then
+            gh api "repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
+              -X POST -f content="-1" --silent || true
+            echo "Insufficient permission ($PERM) — skipping"
+            exit 0
+          fi
+
+      - name: Parse and validate file path
+        id: parse
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          FILE="${COMMENT_BODY#/qo stub }"
+          FILE=$(echo "$FILE" | xargs)
+          if [[ "$FILE" == *".."* || "$FILE" == /* ]]; then
+            echo "::error::Rejected path: $FILE"
+            exit 1
+          fi
+          echo "file=$FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Get PR head ref
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          HEAD_REF=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.issue.number }}" \
+            --jq '.head.ref')
+          echo "head_ref=$HEAD_REF" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr.outputs.head_ref }}
+          token: ${{ github.token }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Quality Orchestrator
+        run: pip install -e ".[action,cli]" --quiet
+
+      - name: Generate stub
+        id: gen
+        env:
+          SRC_FILE: ${{ steps.parse.outputs.file }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          STUB_PATH=$(qo stub "$SRC_FILE" --pr "$PR_NUMBER")
+          if [[ -z "$STUB_PATH" ]]; then
+            echo "::error::qo stub produced no output for $SRC_FILE"
+            exit 1
+          fi
+          echo "stub_path=$STUB_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push stub
+        env:
+          STUB_PATH: ${{ steps.gen.outputs.stub_path }}
+          SRC_FILE: ${{ steps.parse.outputs.file }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "$STUB_PATH"
+          git commit -m "test: add stub for $SRC_FILE [qo-bot]"
+          git push
+
+      - name: React with thumbs-up
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
+            -X POST -f content="+1" --silent || true
+
+      - name: Reply with stub path
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments" \
+            -X POST -f body="✅ Stub committed: \`${{ steps.gen.outputs.stub_path }}\`"
+
+      - name: Reply on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments" \
+            -X POST -f body="❌ \`/qo stub\` failed — check the [Actions log](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details." || true

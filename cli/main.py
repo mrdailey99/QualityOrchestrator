@@ -353,6 +353,36 @@ def list_tests(
 
 
 # ---------------------------------------------------------------------------
+# stub — generate a test stub for a single source file
+# ---------------------------------------------------------------------------
+
+@app.command()
+def stub(
+    src_file: Annotated[str, typer.Argument(help="Source file to generate a test stub for")],
+    framework: Annotated[str, typer.Option("--framework", help="Framework: auto, pytest, vitest, jest, playwright")] = "auto",
+    pr: Annotated[Optional[int], typer.Option("--pr", help="PR number for stub annotation")] = None,
+    write_file: Annotated[bool, typer.Option("--write/--no-write", help="Write stub to disk (default) or print content to stdout")] = True,
+) -> None:
+    """Generate a test stub for a source file."""
+    from generation.templates import generate_stub
+
+    try:
+        test_path, content = generate_stub(src_file, pr_number=pr, framework=framework)
+    except ValueError as exc:
+        _progress.print(f"[red]Error:[/] {exc}")
+        raise typer.Exit(1)
+
+    if write_file:
+        out = Path(test_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(content, encoding="utf-8")
+        _progress.print(f"  [{_GREEN}][+][/] stub written → {test_path}")
+        typer.echo(test_path)  # stdout: clean path for bot capture
+    else:
+        typer.echo(content)  # stdout: content for preview
+
+
+# ---------------------------------------------------------------------------
 # serve — start the FastAPI server
 # ---------------------------------------------------------------------------
 
@@ -856,7 +886,7 @@ def _format_markdown(
     # ── Footer ───────────────────────────────────────────────────────────────
     lines.append("---")
     lines.append("")
-    lines.append("<sub>⚡ quality-orchestrator &nbsp;·&nbsp; `qo stub <file>` &nbsp;·&nbsp; `qo analyze --local`</sub>")
+    lines.append("<sub>⚡ quality-orchestrator &nbsp;·&nbsp; `/qo stub <file>` &nbsp;·&nbsp; `qo analyze --local`</sub>")
     lines.append("")
     lines.append("<!-- quality-orchestrator -->")
     return "\n".join(lines)
