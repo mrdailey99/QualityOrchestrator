@@ -737,7 +737,7 @@ def _run_command(test_files: list[str], js_runner: Optional[str] = None) -> str:
     py = [f for f in test_files if f.endswith(".py")]
     js = [f for f in test_files if not f.endswith(".py")]
     if js_runner is None and js:
-        js_runner = detect_js_runner()
+        js_runner = detect_js_runner(repo_root=_repo_root())
     parts = []
     if py:
         parts.append("pytest \\\n  " + " \\\n  ".join(_md_path(f) for f in py))
@@ -752,7 +752,7 @@ def _run_command_cli(test_files: list[str], js_runner: Optional[str] = None) -> 
     py = [f for f in test_files if f.endswith(".py")]
     js = [f for f in test_files if not f.endswith(".py")]
     if js_runner is None and js:
-        js_runner = detect_js_runner()
+        js_runner = detect_js_runner(repo_root=_repo_root())
     parts = []
     if py:
         parts.append("pytest " + " ".join(shlex.quote(f) for f in py))
@@ -767,7 +767,7 @@ def _run_tests(test_files: list[str], js_runner: Optional[str] = None) -> None:
     py = [f for f in test_files if f.endswith(".py")]
     js = [f for f in test_files if not f.endswith(".py")]
     if js_runner is None and js:
-        js_runner = detect_js_runner()
+        js_runner = detect_js_runner(repo_root=_repo_root())
     if py:
         subprocess.run(["pytest", "--"] + py)
     if js:
@@ -888,7 +888,7 @@ def _write_stubs(
     results: list[tuple[str, str]] = []
     _progress.print("[yellow]Generating stubs...[/]")
     for src in missing:
-        test_path, content = generate_stub(src, pr_number, framework=framework)
+        test_path, content = generate_stub(src, pr_number, framework=framework, repo_root=_repo_root())
         out = Path(test_path)
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(content, encoding="utf-8")
