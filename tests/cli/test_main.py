@@ -1,11 +1,11 @@
 """Tests for cli/main.py — markdown rendering and stub truncation."""
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from cli.main import _format_markdown, _md_path, _read_key, _run_command, _run_command_cli, _run_tests, _truncate_stub
+from cli.main import _format_markdown, _md_path, _read_key, _repo_root, _run_command, _run_command_cli, _run_tests, _truncate_stub
 
 
 # ---------------------------------------------------------------------------
@@ -214,7 +214,7 @@ class TestMarkdownOutput:
         result = engine.analyze(["src/api/user.js"])
         md = _format_markdown(1, "owner/repo", "Test PR", result)
         assert "qo stub" in md
-        assert "qo analyze" in md
+        assert "qo analyze-local" in md
 
     def test_yaml_files_excluded_from_missing_coverage(self, engine):
         result = engine.analyze(
@@ -428,12 +428,12 @@ class TestRunCommandAutoDetect:
         assert "playwright" in cmd
 
     def test_run_command_pure_python_does_not_call_detect(self, monkeypatch):
-        """Pure-Python file lists short-circuit before detect_js_runner is needed."""
+        """Pure-Python file lists skip detect_js_runner entirely (lazy evaluation)."""
         called = []
         monkeypatch.setattr("cli.main.detect_js_runner", lambda repo_root=".":called.append(1) or "vitest")
         cmd = _run_command(["tests/engine/test_risk.py"])
-        # detect MAY be called (the implementation always calls it) but the output must be pytest
         assert cmd.startswith("pytest")
+        assert called == [], "detect_js_runner should not be called for pure-Python inputs"
 
 
 # ---------------------------------------------------------------------------
@@ -530,6 +530,34 @@ class TestKnownTestFilesDedup:
         all_known = list(dict.fromkeys(known_test_files + scan_result))
         total_known = len(all_known)
         assert total_known == 3
+
+
+# ---------------------------------------------------------------------------
+# _repo_root() — git-aware repo root helper
+# ---------------------------------------------------------------------------
+
+class TestRepoRoot:
+    def test_finds_root_with_dot_git_dir(self, tmp_path, monkeypatch):
+        (tmp_path / ".git").mkdir()
+        monkeypatch.chdir(tmp_path)
+        assert _repo_root() == str(tmp_path)
+
+    def test_finds_root_from_subdirectory(self, tmp_path, monkeypatch):
+        (tmp_path / ".git").mkdir()
+        subdir = tmp_path / "src" / "api"
+        subdir.mkdir(parents=True)
+        monkeypatch.chdir(subdir)
+        assert _repo_root() == str(tmp_path)
+
+    def test_finds_root_with_dot_git_file_worktree(self, tmp_path, monkeypatch):
+        # Simulate a git worktree where .git is a file, not a directory
+        (tmp_path / ".git").write_text("gitdir: /some/other/path/.git/worktrees/wt")
+        monkeypatch.chdir(tmp_path)
+        assert _repo_root() == str(tmp_path)
+
+    def test_falls_back_to_dot_when_no_git(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        assert _repo_root() == "."
 
 
 # ---------------------------------------------------------------------------
