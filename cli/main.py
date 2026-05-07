@@ -630,8 +630,14 @@ def _find_git_dir() -> Optional[Path]:
 
 
 def _repo_root() -> str:
-    git_dir = _find_git_dir()
-    return str(git_dir.parent) if git_dir else "."
+    # Walk up to find the directory that contains .git (file or dir).
+    # Using _find_git_dir().parent is wrong for worktrees because it returns
+    # the gitdir inside .git/worktrees/..., not the worktree root.
+    current = Path(".").resolve()
+    for parent in [current, *current.parents]:
+        if (parent / ".git").exists():
+            return str(parent)
+    return "."
 
 
 def _hook_script(hook_type: str, base: str) -> str:

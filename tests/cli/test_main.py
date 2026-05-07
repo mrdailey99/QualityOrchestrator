@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from cli.main import _format_markdown, _md_path, _read_key, _run_command, _run_command_cli, _run_tests, _truncate_stub
+from cli.main import _format_markdown, _md_path, _read_key, _repo_root, _run_command, _run_command_cli, _run_tests, _truncate_stub
 
 
 # ---------------------------------------------------------------------------
@@ -428,12 +428,12 @@ class TestRunCommandAutoDetect:
         assert "playwright" in cmd
 
     def test_run_command_pure_python_does_not_call_detect(self, monkeypatch):
-        """Pure-Python file lists short-circuit before detect_js_runner is needed."""
+        """Pure-Python file lists skip detect_js_runner entirely (lazy evaluation)."""
         called = []
         monkeypatch.setattr("cli.main.detect_js_runner", lambda repo_root=".":called.append(1) or "vitest")
         cmd = _run_command(["tests/engine/test_risk.py"])
-        # detect MAY be called (the implementation always calls it) but the output must be pytest
         assert cmd.startswith("pytest")
+        assert called == [], "detect_js_runner should not be called for pure-Python inputs"
 
 
 # ---------------------------------------------------------------------------
@@ -530,3 +530,24 @@ class TestKnownTestFilesDedup:
         all_known = list(dict.fromkeys(known_test_files + scan_result))
         total_known = len(all_known)
         assert total_known == 3
+
+
+# ---------------------------------------------------------------------------
+# _repo_root() — git-aware repo root helper
+# ---------------------------------------------------------------------------
+
+class TestRepoRoot:
+    def test_repo_root_returns_string(self):
+        root = _repo_root()
+        assert isinstance(root, str)
+        assert len(root) > 0
+
+    def test_repo_root_is_existing_directory(self):
+        from pathlib import Path
+        root = _repo_root()
+        assert Path(root).is_dir()
+
+    def test_repo_root_contains_dot_git(self):
+        from pathlib import Path
+        root = _repo_root()
+        assert (Path(root) / ".git").exists()

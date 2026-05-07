@@ -243,3 +243,11 @@ class TestDetectJsRunner:
         pkg = {"name": "my-app", "version": "1.0.0"}
         (tmp_path / "package.json").write_text(json.dumps(pkg))
         assert detect_js_runner(str(tmp_path)) == "vitest"
+
+    def test_returns_playwright_when_playwright_config_mjs_present(self, tmp_path):
+        (tmp_path / "playwright.config.mjs").write_text("export default {};")
+        assert detect_js_runner(str(tmp_path)) == "playwright"
+
+    def test_returns_playwright_when_playwright_config_cjs_present(self, tmp_path):
+        (tmp_path / "playwright.config.cjs").write_text("module.exports = {};")
+        assert detect_js_runner(str(tmp_path)) == "playwright"

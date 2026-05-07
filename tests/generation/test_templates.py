@@ -88,3 +88,27 @@ class TestFrameworkDetection:
     def test_invalid_framework_raises(self):
         with pytest.raises(ValueError, match="Unknown framework"):
             generate_stub("src/api/user.py", framework="mocha")
+
+    def test_vitest_import_path_uses_forward_slashes_on_windows_style_input(self):
+        _, content = generate_stub("src\\api\\user.ts", framework="vitest")
+        lines = [l for l in content.splitlines() if "from '" in l]
+        assert lines, "Expected an import line"
+        assert "\\" not in lines[0], f"Backslash in import: {lines[0]}"
+
+    def test_jest_import_path_uses_forward_slashes_on_windows_style_input(self):
+        _, content = generate_stub("src\\api\\user.ts", framework="jest")
+        lines = [l for l in content.splitlines() if "from '" in l]
+        assert lines, "Expected an import line"
+        assert "\\" not in lines[0], f"Backslash in import: {lines[0]}"
+
+    def test_playwright_import_path_uses_forward_slashes_on_windows_style_input(self):
+        _, content = generate_stub("src\\api\\user.ts", framework="playwright")
+        lines = [l for l in content.splitlines() if "from '" in l and "@playwright" not in l]
+        assert lines, "Expected a non-playwright import line"
+        assert "\\" not in lines[0], f"Backslash in import: {lines[0]}"
+
+    def test_generate_stub_passes_repo_root_to_detect_js_runner(self, tmp_path):
+        (tmp_path / "jest.config.ts").write_text("export default {};")
+        _, content = generate_stub("src/api/user.ts", framework="auto", repo_root=str(tmp_path))
+        assert "describe" in content
+        assert "it(" in content
