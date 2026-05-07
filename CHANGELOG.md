@@ -2,14 +2,14 @@
 
 All notable changes to Quality Orchestrator are documented here.
 
-## [0.1.1.0] - 2026-05-07
+## [1.0.2.0] - 2026-05-07
 
 ### Added
 - `qo stub <file>` CLI subcommand: generate a test stub for any source file directly from the terminal. Supports `--framework`, `--pr`, and `--no-write` (print to stdout instead of writing to disk).
 - `.github/workflows/qo-bot.yml`: comment bot that responds to `/qo stub <file>` on pull requests. Generates the stub, commits it to the PR branch, and replies with the path. Permission-gated (write/maintain/admin only) with path traversal protection and failure notifications.
 - PR comment footer now shows `/qo stub <file>` (with leading slash) to surface the bot command hint.
 
-## [0.1.0.0] - 2026-05-07
+## [1.0.1.0] - 2026-05-07
 
 ### Added
 - Initial public release: AI-powered PR analysis engine with risk scoring (0–100), test selection, missing coverage detection, and stub generation.
