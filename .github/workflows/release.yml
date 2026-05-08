@@ -41,3 +41,16 @@ jobs:
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+
+      - name: Update floating major version tag
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          if [[ "$TAG" == *-* ]]; then
+            echo "Pre-release tag ($TAG) — skipping major version tag update"
+            exit 0
+          fi
+          MAJOR="${TAG%%.*}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f "$MAJOR"
+          git push origin "refs/tags/$MAJOR" --force
