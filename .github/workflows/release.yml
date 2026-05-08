@@ -53,4 +53,4 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -f "$MAJOR"
-          git push origin "$MAJOR" --force
+          git push origin "refs/tags/$MAJOR" --force
