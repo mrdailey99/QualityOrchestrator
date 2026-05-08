@@ -2,6 +2,11 @@
 
 All notable changes to Quality Orchestrator are documented here.
 
+## [1.0.3] - 2026-05-08
+
+### Added
+- Release workflow now automatically moves the floating major version tag (e.g. `v1`) to the latest release after each publish. Users can now pin `uses: owner/QualityOrchestrator@v1` and always receive the latest patch within that major without updating their workflow files. Pre-release tags (e.g. `v2.0.0-beta.1`) are excluded from this update.
+
 ## [1.0.2] - 2026-05-07
 
 ### Added
